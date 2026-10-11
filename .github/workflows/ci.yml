@@ -31,7 +31,8 @@ jobs:
       - name: Build debug APK
         run: |
           set -o pipefail
-          ./gradlew --stacktrace assembleDebug 2>&1 | tee build.log
+          # Own timeout so a hang still fails the step and gets annotated below.
+          timeout 30m ./gradlew --stacktrace --console=plain assembleDebug 2>&1 | tee build.log
 
       - name: Unit tests
         run: |
@@ -43,6 +44,7 @@ jobs:
         run: |
           [ -f test.log ] && python3 scripts/ci_annotate.py errors test.log
           [ -f build.log ] && python3 scripts/ci_annotate.py errors build.log
+          [ -f build.log ] && tail -n 60 build.log > build-tail.log && python3 scripts/ci_annotate.py notice build-tail.log build-tail
           true
 
       - name: Upload debug APK
