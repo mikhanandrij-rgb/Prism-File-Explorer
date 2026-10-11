@@ -117,12 +117,16 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-boot-anim -camera-back none -camera-front none
-          script: bash -c 'set -o pipefail; ./gradlew --stacktrace :app:connectedDebugAndroidTest 2>&1 | tee connected.log'
+          script: bash scripts/run_connected_tests.sh
 
       - name: Annotate results
         if: always()
         run: |
           [ "${{ job.status }}" != "success" ] && [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
+          if [ -f logcat.txt ]; then
+            grep -E "mpv|libmpv|AndroidRuntime|FATAL|ANR in|TestRunner|VideoRotationTest|vo/gpu|DEBUG  :" logcat.txt | tail -n 200 > logcat-filtered.txt || true
+            python3 scripts/ci_annotate.py notice logcat-filtered.txt logcat
+          fi
           for f in app/build/outputs/androidTest-results/connected/debug/*.xml app/build/outputs/androidTest-results/connected/*/*.xml; do
             [ -f "$f" ] && python3 scripts/ci_annotate.py notice "$f" junit-xml
           done
@@ -136,3 +140,4 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            logcat.txt

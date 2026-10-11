@@ -28,6 +28,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
+import org.junit.rules.Timeout
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
@@ -44,6 +46,10 @@ import kotlin.math.abs
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class VideoRotationTest {
+
+    /** A hang becomes a failure with the stack trace of where it got stuck. */
+    @get:Rule
+    val timeout: Timeout = Timeout.seconds(120)
 
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context: Context = ApplicationProvider.getApplicationContext()
