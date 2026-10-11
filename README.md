@@ -1,25 +1,28 @@
-> [!IMPORTANT]  
-> **This repository is no longer actively maintained.** I am unable to provide support, fix bugs, or merge pull requests. If you’d like to take over maintenance, feel free to fork the project and I’m happy to add a link to your fork in this README.
-
 <div align="center">
 
-<img src="assets/app_icon.png" width="120" alt="Prism File Explorer Logo"/>
+<img src="assets/app_icon.png" width="120" alt="Facet Files logo"/>
 
-# Prism File Explorer
+# Facet Files
 
 [![Platform](https://img.shields.io/badge/Platform-Android-brightgreen.svg?logo=android)](https://www.android.com/)
 [![License](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
-[![Release](https://img.shields.io/github/v/release/Raival-e/Prism-File-Explorer?label=Release)](https://github.com/Raival-e/Prism-File-Explorer/releases)
-[![APK Downloads](https://img.shields.io/github/downloads/Raival-e/Prism-File-Explorer/total.svg?label=APK%20Downloads)](https://github.com/Raival-e/Prism-File-Explorer/releases)
-[![Stars](https://img.shields.io/github/stars/Raival-e/Prism-File-Explorer?style=flat&logo=github)](https://github.com/Raival-e/Prism-File-Explorer/stargazers)
-[![Forks](https://img.shields.io/github/forks/Raival-e/Prism-File-Explorer?style=flat&logo=github)](https://github.com/Raival-e/Prism-File-Explorer/network/members)
-[<img src="https://shields.rbtlog.dev/simple/com.raival.compose.file.explorer" alt="RB shield">](https://shields.rbtlog.dev/com.raival.compose.file.explorer)
+[![CI](https://github.com/mikhanandrij-rgb/Prism-File-Explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/mikhanandrij-rgb/Prism-File-Explorer/actions/workflows/ci.yml)
 
-**A modern, feature-rich, and lightweight file manager for Android, built entirely with Kotlin and Jetpack Compose.**
-
-*Delivering a seamless file management experience with a beautiful Material Design interface*
+**A modern, ad-free, tracker-free file manager for Android, built with Kotlin and Jetpack Compose.**
 
 </div>
+
+> [!NOTE]
+> **Facet Files is a maintained fork of [Prism File Explorer](https://github.com/Raival-e/Prism-File-Explorer) by [Raival-e](https://github.com/Raival-e).**
+> The original project is no longer maintained (last release v1.3.2, September 2025). All credit for the original
+> design and codebase goes to Raival-e. This fork is distributed under the same GNU GPL v3.0 license.
+>
+> Facet Files uses its own application ID (`io.github.mikhanandrij_rgb.facet`), so it installs side by side with the original.
+
+## 🔒 Privacy
+
+- No ads, no analytics, no trackers.
+- Network access happens only on an explicit user action.
 
 ---
 
@@ -37,6 +40,8 @@
   <img src="assets/image7.png" width="21%" alt="Image Viewer"/>
   <img src="assets/image5.png" width="21%" alt="PDF Viewer"/>
 </div>
+
+*Screenshots are from the original Prism File Explorer and will be updated.*
 
 ---
 
@@ -88,14 +93,11 @@
 
 ---
 
-## 📥 Download Options
+## 📥 Download
 
-| Platform            | Link                                                                                                                                                                                                                                                                                                                                                                        |
-|---------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **GitHub Releases** | [![GitHub](https://img.shields.io/badge/GitHub-Download-black?style=for-the-badge&logo=github)](https://github.com/Raival-e/Prism-File-Explorer/releases)                                                                                                                                                                                                                   |
-| **IzzyOnDroid**     | [![IzzyOnDroid](https://img.shields.io/badge/IzzyOnDroid-Download-green?style=for-the-badge)](https://apt.izzysoft.de/fdroid/index/apk/com.raival.compose.file.explorer)                                                                                                                                                                                                    |
-| **Obtainium**       | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-blue?style=for-the-badge)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.raival.compose.file.explorer%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FRaival-e%2FPrism-File-Explorer%22%2C%22author%22%3A%22Raival-e%22%2C%22name%22%3A%22File%20Explorer%20Compose%22%7D) |
-| **OpenApk**         | [![OpenApk](https://img.shields.io/badge/OpenApk-Download-purple?style=for-the-badge)](https://www.openapk.net/file-explorer/com.raival.compose.file.explorer/)                                                                                                                                                                                                             |
+Builds from every commit are available as `apk-debug` artifacts in
+[GitHub Actions](https://github.com/mikhanandrij-rgb/Prism-File-Explorer/actions/workflows/ci.yml).
+Signed releases, IzzyOnDroid and F-Droid listings are planned.
 
 ### 📋 System Requirements
 
@@ -113,92 +115,45 @@
 | ![Android](https://img.shields.io/badge/Android-3DDC84?style=flat&logo=android&logoColor=white)                          | **Platform**             | SDK 34+       |
 | ![Material Design](https://img.shields.io/badge/Material%20Design-757575?style=flat&logo=materialdesign&logoColor=white) | **Design System**        | Material 3    |
 
-
 ---
 
 ## 🔨 Building from Source
 
-### Prerequisites
+Prerequisites: JDK 17 or newer, Android SDK (compileSdk 36).
 
-- **JDK**: 17 or higher
-- **Android SDK**: API level 34+
-- **Git**: For cloning the repository
+```bash
+git clone https://github.com/mikhanandrij-rgb/Prism-File-Explorer.git
+cd Prism-File-Explorer
+./gradlew assembleDebug
+```
 
-### Build Instructions
-
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/Raival-e/Prism-File-Explorer.git
-   cd Prism-File-Explorer
-   ```
-
-2. **Build the project**:
-   ```bash
-   ./gradlew assembleRelease
-   ```
-
-3. **Find the APK**:
-    - Generated APK will be in `app/build/outputs/apk/release/`
----
-
-## 🤝 Contributing
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### 📝 **Development Guidelines**
-
-- Follow Kotlin coding conventions
-- Write meaningful commit messages
-
----
-
-## 📊 Project Stats
-
-![GitHub stats](https://github-readme-stats.vercel.app/api?username=Raival-e&repo=Prism-File-Explorer&show_icons=true&theme=default)
-
----
-
-## ☕ Support the Project
-
-If you find **Prism File Explorer** useful and would like to support its development, consider
-buying me a coffee! Your support helps me maintain and improve this project.
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/RaivalR)
-
-*Every contribution, no matter how small, helps keep this project alive and growing! ❤️*
+The APK will be in `app/build/outputs/apk/debug/`.
 
 ---
 
 ## 📄 License
 
-This project is licensed under the **GNU General Public License v3.0**.
+This project is licensed under the **GNU General Public License v3.0**. See [LICENSE](LICENSE).
 
 ```
-Prism File Explorer - A modern Android file manager
-Copyright (C) 2024 Raival-e
+Facet Files
+Copyright (C) 2024-2025 Raival-e (original Prism File Explorer)
+Copyright (C) 2026 Facet Files contributors
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
 the Free Software Foundation, either version 3 of the License, or
 (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
 ```
 
-See the [LICENSE](LICENSE) file for the full license text.
+## 🙏 Credits
 
----
-
-## 💬 Support & Community
-
-| Platform               | Purpose                       |
-|------------------------|-------------------------------|
-| **GitHub Issues**      | Bug reports, feature requests |
-| **GitHub Discussions** | Community support, questions  |
-| **Email**              | Private inquiries             |
-
-**⭐ If you find this project useful, please consider giving it a star!**
-
-[![Star History](https://img.shields.io/github/stars/Raival-e/Prism-File-Explorer?style=social)](https://github.com/Raival-e/Prism-File-Explorer/stargazers)
+- [Raival-e](https://github.com/Raival-e) — author of the original
+  [Prism File Explorer](https://github.com/Raival-e/Prism-File-Explorer).
+  If you want to support the original author: [Buy Me A Coffee](https://www.buymeacoffee.com/RaivalR).
+- Everyone who contributed translations and patches to the original project.

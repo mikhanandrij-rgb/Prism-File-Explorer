@@ -31,6 +31,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.Gavel
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.NewReleases
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -219,7 +221,17 @@ fun AppInfoDialog(
                                 )
                             }
 
-                            Space(32.dp)
+                            Space(12.dp)
+
+                            // Fork attribution (GPLv3: keep original authorship visible)
+                            Text(
+                                text = stringResource(R.string.about_fork_of),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Space(20.dp)
 
                             // Divider
                             HorizontalDivider(
@@ -267,7 +279,45 @@ fun AppInfoDialog(
                                             context.startActivity(
                                                 Intent(
                                                     Intent.ACTION_VIEW,
+                                                    "https://github.com/mikhanandrij-rgb/Prism-File-Explorer".toUri()
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = animateContent,
+                                    enter = fadeIn(animationSpec = tween(delayMillis = 450))
+                                ) {
+                                    ActionCard(
+                                        icon = Icons.Outlined.History,
+                                        title = stringResource(R.string.about_original_project),
+                                        description = stringResource(R.string.about_original_project_desc),
+                                        onClick = {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
                                                     "https://github.com/Raival-e/Prism-File-Explorer".toUri()
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+
+                                AnimatedVisibility(
+                                    visible = animateContent,
+                                    enter = fadeIn(animationSpec = tween(delayMillis = 475))
+                                ) {
+                                    ActionCard(
+                                        icon = Icons.Outlined.Gavel,
+                                        title = stringResource(R.string.about_license),
+                                        description = stringResource(R.string.about_license_desc),
+                                        onClick = {
+                                            context.startActivity(
+                                                Intent(
+                                                    Intent.ACTION_VIEW,
+                                                    "https://www.gnu.org/licenses/gpl-3.0.html".toUri()
                                                 )
                                             )
                                         }
