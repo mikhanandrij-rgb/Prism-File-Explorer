@@ -1,0 +1,20 @@
+name: Upstream issues report
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch upstream issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/upstream_issues.py
+          split -C 50000 -d issues.txt part_
+          for f in part_*; do python3 scripts/ci_annotate.py notice "$f" "issues-$f"; done
