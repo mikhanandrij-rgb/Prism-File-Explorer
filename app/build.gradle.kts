@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.raival.compose.file.explorer"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "io.github.mikhanandrij_rgb.facet"
