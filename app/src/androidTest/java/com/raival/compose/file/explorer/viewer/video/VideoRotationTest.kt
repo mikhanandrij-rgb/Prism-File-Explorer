@@ -7,9 +7,8 @@ import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.ParcelFileDescriptor
 import androidx.core.content.FileProvider
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +18,8 @@ import androidx.test.uiautomator.UiDevice
 import com.raival.compose.file.explorer.App.Companion.globalClass
 import com.raival.compose.file.explorer.screen.viewer.video.VideoPlayerActivity
 import com.raival.compose.file.explorer.screen.viewer.video.VideoPlayerInstance
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
+import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -31,12 +32,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.concurrent.thread
 import kotlin.math.abs
 
 /**
- * Regression tests for "video stops and restarts from 0 after rotating the screen".
+ * Regression tests for "video stops and restarts from 0 after rotating the screen", plus
+ * smoke tests for the libmpv engine (video output, Anime4K shaders).
  *
- * The test video (20 s, H.264 + AAC) is shipped in androidTest assets.
+ * The test video (20 s, 320x240 H.264 + AAC) is shipped in androidTest assets.
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -55,6 +58,7 @@ class VideoRotationTest {
             file.outputStream().use { input.copyTo(it) }
         }
         videoUri = FileProvider.getUriForFile(context, context.packageName + ".provider", file)
+        VideoPlayerPrefsReset.reset(context)
     }
 
     @After
@@ -63,34 +67,34 @@ class VideoRotationTest {
             device.setOrientationNatural()
             device.unfreezeRotation()
         }
+        VideoPlayerPrefsReset.reset(context)
     }
 
     @Test
     fun rotatingWhilePlaying_keepsPlayerPositionAndActivity() {
         launchVideo().use { scenario ->
-            val player = waitForPlayback(minPositionMs = 1_500)
+            val instance = waitForPlayback(minPositionMs = 1_500)
+            val engine = onMain { instance.engineHandle() }
             val activity = currentActivity(scenario)
-            val interruptions = recordInterruptions(player)
+            val monitor = PlaybackMonitor(instance).also { it.start() }
 
-            var lastPosition = onMain { player.currentPosition }
+            var lastPosition = onMain { instance.currentPositionMs() }
             for (orientation in listOf(LANDSCAPE, PORTRAIT, LANDSCAPE, PORTRAIT)) {
                 scenario.onActivity { it.requestedOrientation = orientation }
                 waitForOrientation(scenario, orientation)
                 Thread.sleep(800)
 
                 onMain {
-                    assertSame("player was recreated", player, currentPlayer())
-                    assertTrue("playback stopped after rotation", player.isPlaying)
-                    val position = player.currentPosition
-                    assertTrue(
-                        "position went back from $lastPosition to $position",
-                        position >= lastPosition
-                    )
+                    assertSame("player was recreated", engine, instance.engineHandle())
+                    assertTrue("playback stopped after rotation", instance.playerState.value.isPlaying)
+                    val position = instance.currentPositionMs()
+                    assertTrue("position went back from $lastPosition to $position", position >= lastPosition)
                     lastPosition = position
                 }
                 assertSame("activity was recreated", activity, currentActivity(scenario))
             }
 
+            val interruptions = monitor.stop()
             assertTrue("playback was interrupted: $interruptions", interruptions.isEmpty())
         }
     }
@@ -98,22 +102,20 @@ class VideoRotationTest {
     @Test
     fun rotatingWhilePaused_staysPausedAtSamePosition() {
         launchVideo().use { scenario ->
-            val player = waitForPlayback(minPositionMs = 1_500)
-            onMain { player.pause() }
+            val instance = waitForPlayback(minPositionMs = 1_500)
+            onMain { instance.pause() }
+            waitUntil("paused") { onMain { !instance.playerState.value.isPlaying } }
             Thread.sleep(300)
-            val pausedAt = onMain { player.currentPosition }
+            val pausedAt = onMain { instance.currentPositionMs() }
 
             scenario.onActivity { it.requestedOrientation = LANDSCAPE }
             waitForOrientation(scenario, LANDSCAPE)
             Thread.sleep(800)
 
             onMain {
-                assertSame(player, currentPlayer())
-                assertFalse("paused video started playing after rotation", player.isPlaying)
-                assertTrue(
-                    "paused position changed: $pausedAt -> ${player.currentPosition}",
-                    abs(player.currentPosition - pausedAt) < 100
-                )
+                assertFalse("paused video started playing after rotation", instance.playerState.value.isPlaying)
+                val now = instance.currentPositionMs()
+                assertTrue("paused position changed: $pausedAt -> $now", abs(now - pausedAt) < 100)
             }
         }
     }
@@ -121,23 +123,24 @@ class VideoRotationTest {
     @Test
     fun deviceAutoRotation_keepsPlaying() {
         launchVideo().use { scenario ->
-            val player = waitForPlayback(minPositionMs = 1_500)
-            val before = onMain { player.currentPosition }
+            val instance = waitForPlayback(minPositionMs = 1_500)
+            val engine = onMain { instance.engineHandle() }
+            val before = onMain { instance.currentPositionMs() }
 
             device.setOrientationLeft()
             Thread.sleep(1_500)
             onMain {
-                assertSame(player, currentPlayer())
-                assertTrue(player.isPlaying)
-                assertTrue(player.currentPosition >= before)
+                assertSame(engine, instance.engineHandle())
+                assertTrue(instance.playerState.value.isPlaying)
+                assertTrue(instance.currentPositionMs() >= before)
             }
 
             device.setOrientationNatural()
             Thread.sleep(1_500)
             onMain {
-                assertSame(player, currentPlayer())
-                assertTrue(player.isPlaying)
-                assertTrue(player.currentPosition >= before)
+                assertSame(engine, instance.engineHandle())
+                assertTrue(instance.playerState.value.isPlaying)
+                assertTrue(instance.currentPositionMs() >= before)
             }
             assertNotNull(currentActivity(scenario))
         }
@@ -145,22 +148,55 @@ class VideoRotationTest {
 
     @Test
     fun activityRecreation_reusesRunningPlayer() {
-        // Covers configuration changes that are not handled in place.
+        // Covers configuration changes that are not handled in place: the surface is
+        // destroyed and recreated, mpv keeps playing in between.
         launchVideo().use { scenario ->
-            val player = waitForPlayback(minPositionMs = 1_500)
-            val before = onMain { player.currentPosition }
+            val instance = waitForPlayback(minPositionMs = 1_500)
+            val engine = onMain { instance.engineHandle() }
+            val before = onMain { instance.currentPositionMs() }
 
             scenario.recreate()
-            Thread.sleep(800)
+            Thread.sleep(1_000)
 
             onMain {
-                assertSame("player was rebuilt on recreation", player, currentPlayer())
-                assertTrue(player.isPlaying)
-                assertTrue(
-                    "position reset on recreation: $before -> ${player.currentPosition}",
-                    player.currentPosition >= before
-                )
+                assertSame("player was rebuilt on recreation", engine, instance.engineHandle())
+                assertTrue(instance.playerState.value.isPlaying)
+                val now = instance.currentPositionMs()
+                assertTrue("position reset on recreation: $before -> $now", now >= before)
             }
+            waitUntil("video output after recreation") { voConfigured(instance) }
+        }
+    }
+
+    @Test
+    fun videoIsRenderedThroughGpuOutput() {
+        launchVideo().use {
+            val instance = waitForPlayback(minPositionMs = 500)
+            waitUntil("vo-configured") { voConfigured(instance) }
+            val width = onMain { mpv(instance).getPropertyInt("video-params/w") }
+            assertEquals(320, width)
+        }
+    }
+
+    @Test
+    fun anime4kPreset_appliesWithoutStoppingPlayback() {
+        launchVideo().use {
+            val instance = waitForPlayback(minPositionMs = 1_000)
+            onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.FAST) }
+
+            val shaders = onMain { mpv(instance).getPropertyString("glsl-shaders") } ?: ""
+            assertTrue("shaders not applied: '$shaders'", shaders.contains("Anime4K_Upscale_CNN_x2_S"))
+
+            // Shaders compile on the GPU; playback must keep going afterwards.
+            val after = onMain { instance.currentPositionMs() }
+            waitUntil("playback continues with Anime4K") {
+                onMain { instance.playerState.value.isPlaying && instance.currentPositionMs() > after + 1_500 }
+            }
+            assertTrue(voConfigured(instance))
+
+            onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
+            val cleared = onMain { mpv(instance).getPropertyString("glsl-shaders") } ?: ""
+            assertTrue("shaders not cleared: '$cleared'", cleared.isEmpty())
         }
     }
 
@@ -170,34 +206,36 @@ class VideoRotationTest {
         val restored = VideoPlayerInstance(videoUri, "process-death-b")
         try {
             runBlocking { original.initializePlayer(context, videoUri) }
-            val player = original.getPlayer()!!
-            waitUntil("original playback") { onMain { player.isPlaying && player.currentPosition > 2_000 } }
+            waitUntil("original playback") {
+                onMain { original.playerState.value.isPlaying && original.currentPositionMs() > 2_000 }
+            }
             onMain {
-                player.setPlaybackSpeed(1.5f)
-                player.pause()
+                original.setPlaybackSpeed(1.5f)
+                original.pause()
+            }
+            waitUntil("speed and pause applied") {
+                onMain {
+                    original.playerState.value.playbackSpeed == 1.5f && !original.playerState.value.isPlaying
+                }
             }
 
             val saved = Bundle()
             val savedPosition = onMain {
                 original.onSaveState(saved)
-                player.currentPosition
+                original.currentPositionMs()
             }
             onMain { original.onClose() }
 
             // Simulate a new process: a fresh instance restored from the saved bundle.
             restored.onRestoreState(saved)
             runBlocking { restored.initializePlayer(context, videoUri) }
-            val newPlayer = restored.getPlayer()!!
-            waitUntil("restored player ready") {
-                onMain { newPlayer.playbackState == Player.STATE_READY }
-            }
+            waitUntil("restored player ready") { onMain { restored.playerState.value.isReady } }
+            Thread.sleep(500)
             onMain {
-                assertTrue(
-                    "restored at ${newPlayer.currentPosition}, expected ~$savedPosition",
-                    abs(newPlayer.currentPosition - savedPosition) < 500
-                )
-                assertFalse(newPlayer.playWhenReady)
-                assertEquals(1.5f, newPlayer.playbackParameters.speed, 0.01f)
+                val position = restored.currentPositionMs()
+                assertTrue("restored at $position, expected ~$savedPosition", abs(position - savedPosition) < 500)
+                assertFalse(restored.playerState.value.isPlaying)
+                assertEquals(1.5f, restored.playerState.value.playbackSpeed, 0.01f)
             }
         } finally {
             onMain {
@@ -209,6 +247,34 @@ class VideoRotationTest {
 
     // --- helpers -------------------------------------------------------------------------
 
+    /** Samples playback every 50 ms and records pauses or backwards jumps. */
+    private inner class PlaybackMonitor(private val instance: VideoPlayerInstance) {
+        private val events = CopyOnWriteArrayList<String>()
+        @Volatile private var running = true
+        private var worker: Thread? = null
+
+        fun start() {
+            worker = thread(name = "playback-monitor") {
+                var last = onMain { instance.currentPositionMs() }
+                while (running) {
+                    Thread.sleep(50)
+                    val (playing, position) = onMain {
+                        instance.playerState.value.isPlaying to instance.currentPositionMs()
+                    }
+                    if (!playing) events += "paused at $position"
+                    if (position + 50 < last) events += "jumped back $last -> $position"
+                    last = position
+                }
+            }
+        }
+
+        fun stop(): List<String> {
+            running = false
+            worker?.join()
+            return events.distinct()
+        }
+    }
+
     private fun launchVideo(): ActivityScenario<VideoPlayerActivity> {
         val intent = Intent(context, VideoPlayerActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
@@ -217,46 +283,22 @@ class VideoRotationTest {
         return ActivityScenario.launch(intent)
     }
 
-    private fun currentPlayer(): ExoPlayer? =
+    private fun currentInstance(): VideoPlayerInstance? =
         globalClass.viewersManager.instances
             .filterIsInstance<VideoPlayerInstance>()
             .firstOrNull()
-            ?.getPlayer()
 
-    private fun waitForPlayback(minPositionMs: Long): ExoPlayer {
-        waitUntil("player created") { onMain { currentPlayer() != null } }
-        val player = onMain { currentPlayer()!! }
-        waitUntil("playback started") { onMain { player.isPlaying } }
-        waitUntil("position >= $minPositionMs") { onMain { player.currentPosition >= minPositionMs } }
-        return player
-    }
+    private fun mpv(instance: VideoPlayerInstance): MPVLib = instance.engineHandle() as MPVLib
 
-    private fun recordInterruptions(player: ExoPlayer): List<String> {
-        val events = CopyOnWriteArrayList<String>()
-        onMain {
-            player.addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (!isPlaying) events += "paused at ${player.currentPosition}"
-                }
+    private fun voConfigured(instance: VideoPlayerInstance): Boolean =
+        onMain { mpv(instance).getPropertyBoolean("vo-configured") == true }
 
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
-                        events += "state $playbackState"
-                    }
-                }
-
-                override fun onPositionDiscontinuity(
-                    oldPosition: Player.PositionInfo,
-                    newPosition: Player.PositionInfo,
-                    reason: Int
-                ) {
-                    if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                        events += "seek ${oldPosition.positionMs} -> ${newPosition.positionMs}"
-                    }
-                }
-            })
-        }
-        return events
+    private fun waitForPlayback(minPositionMs: Long): VideoPlayerInstance {
+        waitUntil("player created") { onMain { currentInstance()?.engineHandle() != null } }
+        val instance = onMain { currentInstance()!! }
+        waitUntil("playback started") { onMain { instance.playerState.value.isPlaying } }
+        waitUntil("position >= $minPositionMs") { onMain { instance.currentPositionMs() >= minPositionMs } }
+        return instance
     }
 
     private fun currentActivity(scenario: ActivityScenario<VideoPlayerActivity>): VideoPlayerActivity {
@@ -305,7 +347,13 @@ class VideoRotationTest {
 
     private fun shell(command: String) {
         val pfd = instrumentation.uiAutomation.executeShellCommand(command)
-        android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+        ParcelFileDescriptor.AutoCloseInputStream(pfd).use { it.readBytes() }
+    }
+
+    private object VideoPlayerPrefsReset {
+        fun reset(context: Context) {
+            context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear().commit()
+        }
     }
 
     private companion object {

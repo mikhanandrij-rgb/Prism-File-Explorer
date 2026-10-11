@@ -58,10 +58,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           SHORT=$(git rev-parse --short HEAD)
-          cp app/build/outputs/apk/debug/*.apk "facet-files-nightly-$SHORT.apk"
-          NOTES="Automatic debug build of $SHORT ($(git log -1 --format=%s)). Installs next to the release version (package io.github.mikhanandrij_rgb.facet.debug)."
+          mkdir -p dist
+          for apk in app/build/outputs/apk/debug/*.apk; do
+            abi=$(basename "$apk" .apk | sed -E 's/^app-(.*)-debug$/\1/')
+            cp "$apk" "dist/facet-files-nightly-$SHORT-$abi.apk"
+          done
+          ls -la dist
+          NOTES="Automatic debug build of $SHORT: $(git log -1 --format=%s)
+
+          Which file to download:
+          - arm64-v8a: almost every phone from the last 8 years
+          - armeabi-v7a: old 32-bit phones
+          - x86_64 / x86: emulators and Chromebooks
+
+          Installs next to the release version (package io.github.mikhanandrij_rgb.facet.debug)."
           gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
-          gh release create nightly "facet-files-nightly-$SHORT.apk" \
+          gh release create nightly dist/*.apk \
             --prerelease --title "Nightly ($SHORT)" --notes "$NOTES" --target "$GITHUB_SHA"
 
       - name: Upload test reports

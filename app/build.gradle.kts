@@ -18,6 +18,24 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // libmpv ships native code for four ABIs (~25 MB each): build one APK per ABI instead of
+    // a ~100 MB universal APK. Phones need arm64-v8a (or armeabi-v7a on old devices).
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            isUniversalApk = false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Extract-free loading of native libraries straight from the APK.
+            useLegacyPackaging = false
+        }
+    }
+
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
@@ -85,8 +103,7 @@ dependencies {
     // Other Jetpack & Android Libraries
     implementation(libs.androidx.datastore)
     implementation(libs.androidx.media3.exoplayer)
-    implementation(libs.androidx.media3.ui)
-    implementation(libs.androidx.media3.ui.compose)
+    implementation(libs.libmpv)
     implementation(libs.androidx.palette.ktx)
 
     // Sora Code Editor
@@ -117,6 +134,9 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.storage)
     implementation(libs.zip4j)
+
+    // Unit tests
+    testImplementation(libs.junit4)
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.junit)
