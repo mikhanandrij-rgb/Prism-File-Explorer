@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 rootProject.name = "File Explorer"
 include(":app")
 include(":baselineprofile")
+project(":baselineprofile").projectDir = file("baselineProfile")
