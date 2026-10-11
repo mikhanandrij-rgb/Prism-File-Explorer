@@ -179,8 +179,7 @@ class VideoRotationTest {
         launchVideo().use {
             val instance = waitForPlayback(minPositionMs = 500)
             waitUntil("vo-configured") { voConfigured(instance) }
-            val width = onMain { mpv(instance).getPropertyInt("video-params/w") }
-            assertEquals(320, width)
+            waitUntil("video size known") { mpv(instance).getPropertyInt("video-params/w") == 320 }
         }
     }
 
@@ -190,8 +189,9 @@ class VideoRotationTest {
             val instance = waitForPlayback(minPositionMs = 1_000)
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.FAST) }
 
-            val shaders = onMain { mpv(instance).getPropertyString("glsl-shaders") } ?: ""
-            assertTrue("shaders not applied: '$shaders'", shaders.contains("Anime4K_Upscale_CNN_x2_S"))
+            waitUntil("shaders applied") {
+                mpv(instance).getPropertyString("glsl-shaders").orEmpty().contains("Anime4K_Upscale_CNN_x2_S")
+            }
 
             // Shaders compile on the GPU; playback must keep going afterwards.
             val after = onMain { instance.currentPositionMs() }
@@ -201,8 +201,7 @@ class VideoRotationTest {
             assertTrue(voConfigured(instance))
 
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
-            val cleared = onMain { mpv(instance).getPropertyString("glsl-shaders") } ?: ""
-            assertTrue("shaders not cleared: '$cleared'", cleared.isEmpty())
+            waitUntil("shaders cleared") { mpv(instance).getPropertyString("glsl-shaders").isNullOrEmpty() }
         }
     }
 
@@ -294,10 +293,11 @@ class VideoRotationTest {
             .filterIsInstance<VideoPlayerInstance>()
             .firstOrNull()
 
-    private fun mpv(instance: VideoPlayerInstance): MPVLib = instance.engineHandle() as MPVLib
+    /** mpv's client API is thread-safe; tests read it from the test thread, not the UI thread. */
+    private fun mpv(instance: VideoPlayerInstance): MPVLib = onMain { instance.engineHandle() } as MPVLib
 
     private fun voConfigured(instance: VideoPlayerInstance): Boolean =
-        onMain { mpv(instance).getPropertyBoolean("vo-configured") == true }
+        mpv(instance).getPropertyBoolean("vo-configured") == true
 
     private fun waitForPlayback(minPositionMs: Long): VideoPlayerInstance {
         waitUntil("player created") { onMain { currentInstance()?.engineHandle() != null } }
