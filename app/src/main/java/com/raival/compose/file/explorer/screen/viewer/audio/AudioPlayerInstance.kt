@@ -52,10 +52,16 @@ class AudioPlayerInstance(
     private var exoPlayer: ExoPlayer? = null
     private var positionTrackingJob: Job? = null
 
+    /** Kept alive across rotation; [onClose] runs only when the player screen is finished. */
+    override val retainAcrossRecreation: Boolean get() = true
+
     @OptIn(UnstableApi::class)
     suspend fun initializePlayer(context: Context, uri: Uri) {
+        // A recreated composition reuses the running player instead of starting over.
+        if (exoPlayer != null) return
+
         withContext(Dispatchers.Main) {
-            exoPlayer = ExoPlayer.Builder(context).build().apply {
+            exoPlayer = ExoPlayer.Builder(context.applicationContext).build().apply {
                 val mediaItem = MediaItem.Builder()
                     .setUri(uri)
                     .build()
@@ -89,11 +95,13 @@ class AudioPlayerInstance(
             }
         }
 
-        extractMetadata(context, uri)
+        extractMetadata(context.applicationContext, uri)
         startPositionTracking()
     }
 
     fun setDefaultColorScheme(colorScheme: AudioPlayerColorScheme) {
+        // After rotation the player is already running and may have album-art colors.
+        if (exoPlayer != null) return
         _colorScheme.value = colorScheme
     }
 

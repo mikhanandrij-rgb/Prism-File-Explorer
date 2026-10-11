@@ -38,7 +38,6 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -72,14 +71,11 @@ fun VideoPlayerScreen(
     val context = LocalContext.current
     val playerState by videoPlayerInstance.playerState.collectAsState()
 
+    // Idempotent: a recreated composition reuses the running player.
+    // The player is released by the activity when the viewer is finished,
+    // never from composition, so rotation does not stop playback.
     LaunchedEffect(videoUri) {
         videoPlayerInstance.initializePlayer(context, videoUri)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            videoPlayerInstance.onClose()
-        }
     }
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -96,6 +92,14 @@ fun VideoPlayerScreen(
                             player = videoPlayerInstance.getPlayer()
                             useController = false
                         }
+                    },
+                    update = { view ->
+                        val player = videoPlayerInstance.getPlayer()
+                        if (view.player !== player) view.player = player
+                    },
+                    onRelease = { view ->
+                        // Detach the surface only; the player keeps running.
+                        view.player = null
                     },
                     modifier = Modifier
                         .fillMaxSize()

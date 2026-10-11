@@ -10,7 +10,7 @@ data class VideoPlayerState(
     val duration: Long = 0L,
     val playbackSpeed: Float = 1.0f,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
-    val isMuted: Boolean = true,
+    val isMuted: Boolean = false,
     val showControls: Boolean = true,
     val title: String = ""
 )

@@ -14,6 +14,8 @@ android {
         targetSdk = 36
         versionCode = 11
         versionName = "1.4.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     dependenciesInfo {
@@ -104,4 +106,10 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.storage)
     implementation(libs.zip4j)
+
+    // Instrumented tests
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.uiautomator)
 }

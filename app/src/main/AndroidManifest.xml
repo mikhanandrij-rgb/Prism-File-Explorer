@@ -125,6 +125,7 @@
 
         <activity
             android:name=".screen.viewer.video.VideoPlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:exported="true"
             android:label="@string/title_activity_video_player"
             android:theme="@style/Theme.FileExplorer"
