@@ -15,4 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python3 scripts/deps_report.py | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: |
+          python3 scripts/deps_report.py | tee report.txt
+          cat report.txt >> "$GITHUB_STEP_SUMMARY"
+          python3 scripts/ci_annotate.py notice report.txt deps

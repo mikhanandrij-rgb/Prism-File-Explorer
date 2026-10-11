@@ -27,10 +27,21 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build debug APK
-        run: ./gradlew --stacktrace assembleDebug
+        run: |
+          set -o pipefail
+          ./gradlew --stacktrace assembleDebug 2>&1 | tee build.log
 
       - name: Unit tests
-        run: ./gradlew --stacktrace testDebugUnitTest
+        run: |
+          set -o pipefail
+          ./gradlew --stacktrace testDebugUnitTest 2>&1 | tee test.log
+
+      - name: Annotate errors
+        if: failure()
+        run: |
+          [ -f test.log ] && python3 scripts/ci_annotate.py errors test.log
+          [ -f build.log ] && python3 scripts/ci_annotate.py errors build.log
+          true
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
