@@ -3,6 +3,7 @@ package com.raival.compose.file.explorer.screen.viewer.video
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.os.Bundle
 import android.view.SurfaceHolder
@@ -25,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileNotFoundException
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -61,7 +65,17 @@ class VideoPlayerInstance(
     val playerState: StateFlow<VideoPlayerState> = _playerState.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    private var mpv: MPVLib? = null
+
+    /**
+     * All player commands run here, never on the UI thread: some mpv calls wait for the video
+     * output (e.g. changing shaders), and the UI must not stall when the GPU is busy.
+     */
+    private val control: ExecutorService = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "mpv-control")
+    }
+    private val controlDispatcher = control.asCoroutineDispatcher()
+
+    @Volatile private var mpv: MPVLib? = null
     private var appContext: Context? = null
     private var prefs: VideoPlayerPrefs? = null
     private var audioFocus: PlaybackAudioFocus? = null
@@ -129,10 +143,10 @@ class VideoPlayerInstance(
         mpv = lib
 
         audioFocus = PlaybackAudioFocus(ctx) { shouldPlay ->
-            mpv?.setPropertyBoolean("pause", !shouldPlay)
+            post { it.setPropertyBoolean("pause", !shouldPlay) }
         }
 
-        lib.command(arrayOf("loadfile", source))
+        post { it.command(arrayOf("loadfile", source)) }
     }
 
     private fun createMpv(
@@ -153,7 +167,8 @@ class VideoPlayerInstance(
             // Video output: libplacebo on OpenGL ES, MediaCodec decoding imported into GL.
             setOptionString("gpu-context", "android")
             setOptionString("opengl-es", "yes")
-            setOptionString("hwdec", "mediacodec,mediacodec-copy")
+            // Emulators' MediaCodec + AImageReader path stalls on every frame; decode in software there.
+            setOptionString("hwdec", if (isEmulator) "no" else "mediacodec,mediacodec-copy")
             setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
             setOptionString("vo", if (holder != null) VIDEO_OUTPUT else "null")
             setOptionString("force-window", if (holder != null) "yes" else "no")
@@ -243,33 +258,45 @@ class VideoPlayerInstance(
 
     // --- Controls -------------------------------------------------------------------------
 
-    fun playPause() {
+    /** Runs [block] on the control thread if the player exists. */
+    private fun post(block: (MPVLib) -> Unit) {
         val lib = mpv ?: return
+        runCatching {
+            control.execute {
+                if (mpv === lib) runCatching { block(lib) }.onFailure { logger.logError(it) }
+            }
+        }
+    }
+
+    fun playPause() {
         if (_playerState.value.isPlaying) {
-            audioFocus?.onUserPause()
-            lib.setPropertyBoolean("pause", true)
+            pause()
         } else {
-            if (eofReached) lib.command(arrayOf("seek", "0", "absolute"))
-            lib.setPropertyBoolean("pause", false)
+            val restart = eofReached
+            post { lib ->
+                if (restart) lib.command(arrayOf("seek", "0", "absolute"))
+                lib.setPropertyBoolean("pause", false)
+            }
         }
     }
 
     fun pause() {
         audioFocus?.onUserPause()
-        mpv?.setPropertyBoolean("pause", true)
+        post { it.setPropertyBoolean("pause", true) }
     }
 
     fun seekTo(position: Long) {
         val seconds = String.format(Locale.ROOT, "%.3f", position.coerceAtLeast(0) / 1000.0)
-        mpv?.command(arrayOf("seek", seconds, "absolute"))
+        post { it.command(arrayOf("seek", seconds, "absolute")) }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        mpv?.setPropertyDouble("speed", speed.toDouble())
+        post { it.setPropertyDouble("speed", speed.toDouble()) }
     }
 
     fun toggleMute() {
-        mpv?.setPropertyBoolean("mute", !_playerState.value.isMuted)
+        val mute = !_playerState.value.isMuted
+        post { it.setPropertyBoolean("mute", mute) }
     }
 
     fun toggleControls() {
@@ -278,30 +305,31 @@ class VideoPlayerInstance(
 
     fun toggleRepeatMode() {
         val loop = _playerState.value.repeatMode == Player.REPEAT_MODE_OFF
-        mpv?.setPropertyString("loop-file", if (loop) "inf" else "no")
+        post { it.setPropertyString("loop-file", if (loop) "inf" else "no") }
     }
 
     fun selectAudioTrack(id: Int?) {
-        mpv?.setPropertyString("aid", id?.toString() ?: "no")
+        post { it.setPropertyString("aid", id?.toString() ?: "no") }
     }
 
     fun selectSubtitleTrack(id: Int?) {
-        mpv?.setPropertyString("sid", id?.toString() ?: "no")
+        post { it.setPropertyString("sid", id?.toString() ?: "no") }
     }
 
     /** Changes the Anime4K preset immediately (no reload) and remembers it as the default. */
     fun setAnime4K(mode: Anime4K.Mode, level: Anime4K.Level) {
         val ctx = appContext ?: return
-        val lib = mpv ?: return
-        val shaders = Anime4K.shaderPathList(ctx, mode, level)
-        if (shaders.isEmpty()) {
-            lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
-        } else {
-            lib.command(arrayOf("change-list", "glsl-shaders", "set", shaders))
-        }
         prefs?.anime4kMode = mode
         prefs?.anime4kLevel = level
         _playerState.update { it.copy(anime4kMode = mode, anime4kLevel = level) }
+        post { lib ->
+            val shaders = Anime4K.shaderPathList(ctx, mode, level)
+            if (shaders.isEmpty()) {
+                lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
+            } else {
+                lib.command(arrayOf("change-list", "glsl-shaders", "set", shaders))
+            }
+        }
     }
 
     fun setStatsVisible(visible: Boolean) {
@@ -310,7 +338,9 @@ class VideoPlayerInstance(
         if (!visible) return
         statsJob = scope.launch {
             while (isActive) {
-                mpv?.let { lib -> _playerState.update { it.copy(stats = readStats(lib)) } }
+                val lib = mpv ?: break
+                val stats = withContext(controlDispatcher) { runCatching { readStats(lib) }.getOrNull() }
+                if (stats != null) _playerState.update { it.copy(stats = stats) }
                 delay(500)
             }
         }
@@ -335,9 +365,8 @@ class VideoPlayerInstance(
         )
     }
 
-    /** Current position read directly from mpv (ms). */
-    fun currentPositionMs(): Long =
-        ((mpv?.getPropertyDouble("time-pos") ?: positionSec) * 1000).roundToLong()
+    /** Latest playback position reported by mpv (ms). Never blocks. */
+    fun currentPositionMs(): Long = (positionSec * 1000).roundToLong()
 
     /** The native player object; stable for the lifetime of this instance. */
     fun engineHandle(): Any? = mpv
@@ -413,7 +442,7 @@ class VideoPlayerInstance(
             MpvEvent.MPV_EVENT_FILE_LOADED -> {
                 fileLoaded = true
                 // "start" was only meant for the restored file.
-                mpv?.setOptionString("start", "none")
+                post { it.setOptionString("start", "none") }
                 _playerState.update { it.copy(isReady = true, isLoading = false) }
                 publishPlayback()
             }
@@ -491,12 +520,20 @@ class VideoPlayerInstance(
         scope.cancel()
         audioFocus?.release()
         audioFocus = null
-        mpv?.let { lib ->
-            lib.removeObserver(this)
-            lib.removeLogObserver(this)
-            runCatching { lib.destroy() }.onFailure { logger.logError(it) }
-        }
+        val lib = mpv
         mpv = null
+        if (lib != null) {
+            // Queued after any pending command; destroying waits for mpv's threads, so keep it
+            // off the UI thread.
+            runCatching {
+                control.execute {
+                    lib.removeObserver(this)
+                    lib.removeLogObserver(this)
+                    runCatching { lib.destroy() }.onFailure { logger.logError(it) }
+                }
+            }
+        }
+        control.shutdown()
     }
 
     internal data class SavedPlayback(
@@ -554,6 +591,10 @@ class VideoPlayerInstance(
         /** libplacebo renderer; falls back to the classic OpenGL renderer if it can't start. */
         private const val VIDEO_OUTPUT = "gpu-next,gpu"
         private const val LOG_TAG = "mpv"
+
+        private val isEmulator: Boolean
+            get() = Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu") ||
+                    Build.PRODUCT.contains("sdk_gphone") || Build.FINGERPRINT.startsWith("generic")
 
         /** Path for local files (enables external subtitle auto-loading), fd otherwise. */
         internal fun mediaSource(context: Context, uri: Uri): String {
