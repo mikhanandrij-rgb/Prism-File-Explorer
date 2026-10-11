@@ -93,6 +93,25 @@
 
 ---
 
+## 🎬 Video player
+
+The video player is built on **libmpv** (mpv 0.41, FFmpeg, libplacebo, libass):
+
+- Hardware decoding (MediaCodec) rendered through `gpu-next`, all common codecs and containers
+  (H.264, HEVC incl. 10-bit, AV1, VP9, MKV, MP4, AVI, MOV, FLAC, Opus, DTS, …)
+- **Anime4K real-time upscaling**: modes A (restore), B (soft restore), C (denoise) and levels
+  Fast / Balanced / Quality. Balanced and Quality use the official Anime4K mpv chains. Upscaling
+  only runs when the screen is at least 1.2× larger than the video, and the preset never changes
+  by itself. Heavier levels need a strong GPU.
+- ASS/SSA subtitles with styles and embedded fonts, external subtitles next to the file,
+  audio/subtitle track selection
+- Optional stats overlay (resolution, decoder, FPS, dropped frames)
+- Keeps playing through screen rotation; pauses for calls and when headphones are unplugged
+
+APKs are split per CPU architecture (`arm64-v8a` for almost all phones).
+
+---
+
 ## 📥 Download
 
 Builds from every commit are available as `apk-debug` artifacts in
@@ -150,6 +169,20 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU General Public License for more details.
 ```
+
+## 📦 Third-party components
+
+| Component | License |
+|---|---|
+| [mpv](https://mpv.io) | LGPL-2.1+ / GPL-2.0+ |
+| [FFmpeg](https://ffmpeg.org) | LGPL-2.1+ / GPL-2.0+ |
+| [libplacebo](https://code.videolan.org/videolan/libplacebo) | LGPL-2.1+ |
+| [libass](https://github.com/libass/libass) | ISC |
+| [dav1d](https://code.videolan.org/videolan/dav1d) | BSD-2-Clause |
+| [libmpv-android](https://github.com/jarnedemeulemeester/libmpv-android) (packaging) | MIT |
+| [Anime4K](https://github.com/bloc97/Anime4K) shaders | MIT (`app/src/main/assets/anime4k/LICENSE.txt`) |
+
+All are compatible with this project's GPL-3.0 license.
 
 ## 🙏 Credits
 
