@@ -33,6 +33,9 @@ android {
         jniLibs {
             // Extract-free loading of native libraries straight from the APK.
             useLegacyPackaging = false
+            // Prebuilt libmpv libraries are already release-stripped; skipping AGP's strip
+            // step means the build doesn't need (or download) an NDK.
+            keepDebugSymbols += "**/*.so"
         }
     }
 
