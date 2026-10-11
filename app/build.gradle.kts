@@ -23,6 +23,17 @@ android {
         includeInBundle = false
     }
 
+    signingConfigs {
+        // Shared, public debug key (not a secret): every CI build is signed the same way,
+        // so newer debug/nightly builds install over older ones.
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"

@@ -14,6 +14,8 @@ jobs:
     name: assembleDebug + unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +51,18 @@ jobs:
           name: apk-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      - name: Publish nightly APK to Releases
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          cp app/build/outputs/apk/debug/*.apk "facet-files-nightly-$SHORT.apk"
+          NOTES="Automatic debug build of $SHORT ($(git log -1 --format=%s)). Installs next to the release version (package io.github.mikhanandrij_rgb.facet.debug)."
+          gh release delete nightly --yes --cleanup-tag 2>/dev/null || true
+          gh release create nightly "facet-files-nightly-$SHORT.apk" \
+            --prerelease --title "Nightly ($SHORT)" --notes "$NOTES" --target "$GITHUB_SHA"
 
       - name: Upload test reports
         if: failure()
