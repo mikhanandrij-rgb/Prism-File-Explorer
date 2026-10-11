@@ -124,7 +124,8 @@ jobs:
         run: |
           [ "${{ job.status }}" != "success" ] && [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
           if [ -f logcat.txt ]; then
-            grep -E "mpv|libmpv|AndroidRuntime|FATAL|ANR in|TestRunner|VideoRotationTest|vo/gpu|DEBUG  :" logcat.txt | tail -n 200 > logcat-filtered.txt || true
+            grep -E " mpv *:|libmpv|AndroidRuntime|FATAL|ANR in|TestRunner: (started|failed|finished)|TestTimedOut|DEBUG  :|libEGL|swiftshader" logcat.txt \
+              | grep -v THREAD_STATE | head -n 400 > logcat-filtered.txt || true
             python3 scripts/ci_annotate.py notice logcat-filtered.txt logcat
           fi
           for f in app/build/outputs/androidTest-results/connected/debug/*.xml app/build/outputs/androidTest-results/connected/*/*.xml; do

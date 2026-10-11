@@ -1,7 +1,9 @@
 package com.raival.compose.file.explorer.screen.viewer.video
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.net.Uri
+import android.util.Log
 import android.os.Bundle
 import android.view.SurfaceHolder
 import androidx.media3.common.Player
@@ -53,7 +55,7 @@ import kotlin.math.roundToLong
 class VideoPlayerInstance(
     override val uri: Uri,
     override val id: String
-) : ViewerInstance, MPVLib.EventObserver {
+) : ViewerInstance, MPVLib.EventObserver, MPVLib.LogObserver {
 
     private val _playerState = MutableStateFlow(VideoPlayerState())
     val playerState: StateFlow<VideoPlayerState> = _playerState.asStateFlow()
@@ -75,6 +77,9 @@ class VideoPlayerInstance(
     @Volatile private var eofReached = false
     @Volatile private var positionSec = 0.0
 
+    /** mpv log level forwarded to logcat (tag "mpv"): info in debuggable builds, warnings otherwise. */
+    @Volatile private var logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN
+
     override val retainAcrossRecreation: Boolean get() = true
 
     /**
@@ -86,6 +91,9 @@ class VideoPlayerInstance(
 
         val ctx = context.applicationContext
         appContext = ctx
+        if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_INFO
+        }
         val prefs = VideoPlayerPrefs(ctx).also { prefs = it }
         val restore = pendingRestore.also { pendingRestore = null }
         val mode = restore?.anime4kMode ?: prefs.anime4kMode
@@ -186,6 +194,7 @@ class VideoPlayerInstance(
             }
 
             if (holder != null) attachSurface(holder.surface)
+            addLogObserver(this@VideoPlayerInstance)
             init()
 
             addObserver(this@VideoPlayerInstance)
@@ -335,6 +344,20 @@ class VideoPlayerInstance(
 
     // --- mpv events (event thread) ---------------------------------------------------------
 
+    override fun logMessage(prefix: String, level: Int, text: String) {
+        if (level > logLevel) return
+        val message = "[$prefix] ${text.trimEnd()}"
+        when {
+            level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR -> {
+                Log.e(LOG_TAG, message)
+                logger.logError("mpv $message")
+            }
+
+            level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN -> Log.w(LOG_TAG, message)
+            else -> Log.i(LOG_TAG, message)
+        }
+    }
+
     override fun eventProperty(property: String) {
         if (property == "track-list") refreshTracks()
     }
@@ -470,6 +493,7 @@ class VideoPlayerInstance(
         audioFocus = null
         mpv?.let { lib ->
             lib.removeObserver(this)
+            lib.removeLogObserver(this)
             runCatching { lib.destroy() }.onFailure { logger.logError(it) }
         }
         mpv = null
@@ -527,7 +551,9 @@ class VideoPlayerInstance(
     }
 
     companion object {
-        private const val VIDEO_OUTPUT = "gpu-next"
+        /** libplacebo renderer; falls back to the classic OpenGL renderer if it can't start. */
+        private const val VIDEO_OUTPUT = "gpu-next,gpu"
+        private const val LOG_TAG = "mpv"
 
         /** Path for local files (enables external subtitle auto-loading), fd otherwise. */
         internal fun mediaSource(context: Context, uri: Uri): String {
