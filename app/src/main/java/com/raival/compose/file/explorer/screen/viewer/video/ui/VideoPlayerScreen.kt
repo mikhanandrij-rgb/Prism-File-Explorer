@@ -96,6 +96,8 @@ fun VideoPlayerScreen(
                     update = { view ->
                         val player = videoPlayerInstance.getPlayer()
                         if (view.player !== player) view.player = player
+                        // Don't let the screen time out while a video is playing.
+                        view.keepScreenOn = playerState.isPlaying
                     },
                     onRelease = { view ->
                         // Detach the surface only; the player keeps running.

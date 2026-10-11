@@ -40,10 +40,7 @@ fun SearchPanel(
     ) {
         LaunchedEffect(Unit) {
             if (searcher.query.isNotEmpty()) {
-                codeEditor.searcher.search(
-                    searcher.query,
-                    EditorSearcher.SearchOptions(!searcher.caseSensitive, searcher.useRegex)
-                )
+                codeEditor.safeSearch(searcher.query, !searcher.caseSensitive, searcher.useRegex)
             }
         }
 
@@ -56,10 +53,7 @@ fun SearchPanel(
                     codeEditor.searcher.stopSearch()
                     codeEditor.invalidate()
                 } else {
-                    codeEditor.searcher.search(
-                        it,
-                        EditorSearcher.SearchOptions(!searcher.caseSensitive, searcher.useRegex)
-                    )
+                    codeEditor.safeSearch(it, !searcher.caseSensitive, searcher.useRegex)
                 }
             },
             label = { Text(text = stringResource(R.string.find)) },
@@ -91,13 +85,7 @@ fun SearchPanel(
                         codeEditor.searcher.stopSearch()
                         codeEditor.invalidate()
                     } else {
-                        codeEditor.searcher.search(
-                            searcher.query,
-                            EditorSearcher.SearchOptions(
-                                !searcher.caseSensitive,
-                                searcher.useRegex
-                            )
-                        )
+                        codeEditor.safeSearch(searcher.query, !searcher.caseSensitive, searcher.useRegex)
                     }
                 },
                 uncheckedBoxBackgroundColor = colorScheme.surfaceColorAtElevation(8.dp),
@@ -115,13 +103,7 @@ fun SearchPanel(
                         codeEditor.searcher.stopSearch()
                         codeEditor.invalidate()
                     } else {
-                        codeEditor.searcher.search(
-                            searcher.query,
-                            EditorSearcher.SearchOptions(
-                                !searcher.caseSensitive,
-                                searcher.useRegex
-                            )
-                        )
+                        codeEditor.safeSearch(searcher.query, !searcher.caseSensitive, searcher.useRegex)
                     }
                 },
                 uncheckedBoxBackgroundColor = colorScheme.surfaceColorAtElevation(8.dp),
@@ -169,4 +151,21 @@ fun SearchPanel(
             Space(size = 8.dp)
         }
     }
+}
+
+/**
+ * Starts an editor search without crashing on an incomplete regular expression
+ * (e.g. "foo(" while typing): invalid patterns just clear the current matches.
+ */
+private fun CodeEditor.safeSearch(query: String, ignoreCase: Boolean, useRegex: Boolean) {
+    if (useRegex && runCatching { java.util.regex.Pattern.compile(query) }.isFailure) {
+        searcher.stopSearch()
+        invalidate()
+        return
+    }
+    runCatching { searcher.search(query, EditorSearcher.SearchOptions(ignoreCase, useRegex)) }
+        .onFailure {
+            searcher.stopSearch()
+            invalidate()
+        }
 }

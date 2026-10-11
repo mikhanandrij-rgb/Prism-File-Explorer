@@ -27,10 +27,14 @@ class ContentOperationService : Service() {
     // Tasks ids and whether they are running
     private val runningTaskIds = ConcurrentHashMap<String, Boolean>()
 
+    @Volatile
+    private var isForeground = false
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
+        isForeground = true
     }
 
     private fun createNotificationChannel() {
@@ -61,7 +65,7 @@ class ContentOperationService : Service() {
             )
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
-            .setOngoing(true)
+            .setOngoing(runningTaskIds.values.any { it })
             .setNumber(activeTasksCount)
             .build()
     }
@@ -69,6 +73,34 @@ class ContentOperationService : Service() {
     private fun updateNotification() {
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification())
+        updateForegroundState()
+    }
+
+    /**
+     * Stay a foreground service only while a task is actually running. Tasks that wait for the
+     * user (conflicts, failures) used to keep the dataSync service in the foreground forever,
+     * which Android 15+ kills after its time limit (ForegroundServiceDidNotStopInTimeException).
+     */
+    private fun updateForegroundState() {
+        if (runningTaskIds.values.any { it }) {
+            if (!isForeground) {
+                runCatching { startForeground(NOTIFICATION_ID, createNotification()) }
+                    .onSuccess { isForeground = true }
+                    .onFailure { logger.logError(it) }
+            }
+        } else if (isForeground) {
+            stopForeground(STOP_FOREGROUND_DETACH)
+            isForeground = false
+        }
+    }
+
+    /** Android 15+: the dataSync time budget is used up. Stop cleanly instead of crashing. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        logger.logInfo("Background tasks stopped: foreground service time limit reached")
+        runningTaskIds.keys.forEach { taskId ->
+            globalClass.taskManager.getTask(taskId)?.abortTask()
+        }
+        stopSelf()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

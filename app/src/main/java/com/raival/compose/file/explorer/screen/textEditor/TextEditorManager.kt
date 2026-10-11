@@ -1,6 +1,5 @@
 package com.raival.compose.file.explorer.screen.textEditor
 
-import com.raival.compose.file.explorer.common.storage.FileOps
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
@@ -234,7 +233,7 @@ class TextEditorManager {
         isSaving = true
         scope.launch {
             fileInstance.apply {
-                FileOps.writeText(file, fileInstance.content.toString())
+                file.writeText(fileInstance.content.toString())
                 lastModified = fileInstance.file.lastModified
                 requireSave = false
                 requireSaveCurrentFile = false
@@ -248,7 +247,7 @@ class TextEditorManager {
         isSaving = true
         scope.launch {
             getFileInstance()?.let { instance ->
-                FileOps.writeText(activeFile, instance.content.toString())
+                activeFile.writeText(instance.content.toString())
                 instance.lastModified = activeFile.lastModified
                 instance.requireSave = false
                 requireSaveCurrentFile = false
