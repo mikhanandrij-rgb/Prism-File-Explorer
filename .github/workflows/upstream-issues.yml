@@ -16,5 +16,4 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/upstream_issues.py
-          split -C 50000 -d issues.txt part_
-          for f in part_*; do python3 scripts/ci_annotate.py notice "$f" "issues-$f"; done
+          python3 scripts/ci_annotate.py notice issues.txt issues

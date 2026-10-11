@@ -22,7 +22,7 @@ for page in range(1, 6):
 
 out = [f"{len(issues)} open issues"]
 for i in issues:
-    body = " ".join((i.get("body") or "").split())[:300]
+    body = " ".join((i.get("body") or "").split())[:110]
     labels = ",".join(l["name"] for l in i.get("labels", []))
     out.append(f"#{i['number']} [{labels}] (+{i['reactions']['total_count']}, {i['comments']}c) {i['title']} :: {body}")
 open("issues.txt", "w").write("\n".join(out))

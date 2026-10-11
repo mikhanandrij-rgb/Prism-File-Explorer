@@ -41,7 +41,7 @@ def errors(path: str) -> None:
             out.append(line)
     body = "\n".join(out)[:MAX_CHARS] or "\n".join(lines[-80:])
     # Split into a few annotations (each is capped by GitHub)
-    chunk = 7000
+    chunk = 4000  # GitHub truncates annotation messages at ~4 KB
     for n, i in enumerate(range(0, len(body), chunk)):
         if n >= 8:
             break
@@ -50,7 +50,16 @@ def errors(path: str) -> None:
 
 def notice(path: str, title: str) -> None:
     body = open(path, errors="replace").read()[:MAX_CHARS]
-    print(f"::notice title={title}::{esc(body)}")
+    lines, parts, cur = body.splitlines(), [], ""
+    for line in lines:
+        if len(cur) + len(line) + 1 > 4000 and cur:
+            parts.append(cur)
+            cur = ""
+        cur += line[:4000] + "\n"
+    if cur:
+        parts.append(cur)
+    for n, part in enumerate(parts[:10]):
+        print(f"::notice title={title}-{n}::{esc(part)}")
 
 
 if __name__ == "__main__":
