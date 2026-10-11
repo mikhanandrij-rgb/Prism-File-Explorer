@@ -1,5 +1,6 @@
 package com.raival.compose.file.explorer.screen.main.tab.files.task
 
+import com.raival.compose.file.explorer.common.storage.FileOps
 import com.raival.compose.file.explorer.App.Companion.globalClass
 import com.raival.compose.file.explorer.App.Companion.logger
 import com.raival.compose.file.explorer.R
@@ -313,14 +314,14 @@ class CopyTask(
                 progress = (index + 1f) / successfulItems.size
             }
 
-            (item.content as LocalFileHolder).file.deleteRecursively()
+            FileOps.delete((item.content as LocalFileHolder).file)
         }
 
         // Clean up empty directories
         sourceFiles.forEach { content ->
             val file = (content as LocalFileHolder).file
             if (file.exists() && file.walkTopDown().none { it.isFile }) {
-                file.deleteRecursively()
+                FileOps.delete(file)
             }
         }
     }
@@ -424,6 +425,16 @@ class CopyTask(
 
     private fun copyLocalFile(source: File, destination: File, overwrite: Boolean): Boolean {
         return try {
+            if (FileOps.usesSaf(destination)) {
+                // Removable volume on Android 8–10: write through SAF. For moves, the
+                // sources are deleted afterwards by performSourceDeletion().
+                return if (source.isFile) {
+                    FileOps.copyFile(source, destination, overwrite)
+                    true
+                } else {
+                    FileOps.mkdirs(destination)
+                }
+            }
             if (source.isFile) {
                 destination.parentFile?.mkdirs()
                 if (deleteSourceFiles) {
@@ -642,15 +653,15 @@ class CopyTask(
     ): Boolean {
         return try {
             if (sourceHolder.isFile()) {
-                destinationFile.parentFile?.mkdirs()
+                destinationFile.parentFile?.let { FileOps.mkdirs(it) }
                 sourceZip.getInputStream(sourceZip.getFileHeader(sourceHolder.node.path))
                     .use { input ->
-                        destinationFile.outputStream().use { output ->
+                        FileOps.outputStream(destinationFile).use { output ->
                             input.copyTo(output)
                         }
                     }
             } else {
-                destinationFile.mkdirs()
+                FileOps.mkdirs(destinationFile)
             }
             true
         } catch (e: Exception) {

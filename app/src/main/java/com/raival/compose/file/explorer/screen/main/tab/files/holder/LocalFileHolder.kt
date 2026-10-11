@@ -1,5 +1,6 @@
 package com.raival.compose.file.explorer.screen.main.tab.files.holder
 
+import com.raival.compose.file.explorer.common.storage.FileOps
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -164,7 +165,7 @@ class LocalFileHolder(val file: File) : ContentHolder() {
 
     override suspend fun createSubFile(name: String, onCreated: (ContentHolder?) -> Unit) {
         File(file, name).let { newFile ->
-            if (newFile.createNewFile()) {
+            if (FileOps.createFile(newFile)) {
                 onCreated(LocalFileHolder(newFile))
                 return
             }
@@ -174,7 +175,7 @@ class LocalFileHolder(val file: File) : ContentHolder() {
 
     override suspend fun createSubFolder(name: String, onCreated: (ContentHolder?) -> Unit) {
         File(file, name).let { newFolder ->
-            if (newFolder.exists() || newFolder.mkdir()) {
+            if (newFolder.exists() || FileOps.mkdirs(newFolder)) {
                 onCreated(LocalFileHolder(newFolder))
                 return
             }
@@ -256,7 +257,7 @@ class LocalFileHolder(val file: File) : ContentHolder() {
     }
 
     fun writeText(text: String) {
-        file.writeText(text)
+        FileOps.writeText(file, text)
     }
 
     fun readText() = file.readText()

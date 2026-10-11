@@ -1,5 +1,11 @@
 package com.raival.compose.file.explorer.screen.main.tab.home.ui
 
+import java.io.File
+import com.raival.compose.file.explorer.common.storage.LegacyStorageAccess
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.app.Activity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -544,9 +550,42 @@ private fun StorageSection(
             )
             .clip(RoundedCornerShape(12.dp))
     ) {
+        // Android 8–10: removable volumes are writable only through a SAF grant for their
+        // root. Ask once when the volume is opened; it still opens read-only if declined.
+        var pendingGrantPath by rememberSaveable { mutableStateOf<String?>(null) }
+        val grantLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val path = pendingGrantPath ?: return@rememberLauncherForActivityResult
+            pendingGrantPath = null
+            val root = File(path)
+            val volume = LegacyStorageAccess.volumeOf(root)
+            val treeUri = result.data?.data
+            if (result.resultCode == Activity.RESULT_OK && volume != null && treeUri != null) {
+                if (!LegacyStorageAccess.persistGrant(volume, treeUri)) {
+                    globalClass.showMsg(R.string.sd_card_access_wrong_folder)
+                }
+            } else {
+                globalClass.showMsg(R.string.sd_card_access_read_only)
+            }
+            mainActivityManager.replaceCurrentTabWith(FilesTab(LocalFileHolder(root)))
+        }
+
         storageList.forEachIndexed { index, device ->
             StorageDeviceView(storageDevice = device) {
-                mainActivityManager.replaceCurrentTabWith(FilesTab(device.contentHolder))
+                val root = (device.contentHolder as? LocalFileHolder)?.file
+                val volume = root
+                    ?.takeIf { LegacyStorageAccess.needsGrant(it) }
+                    ?.let { LegacyStorageAccess.volumeOf(it) }
+                val launched = root != null && volume != null && runCatching {
+                    pendingGrantPath = root.absolutePath
+                    globalClass.showMsg(R.string.sd_card_access_hint)
+                    grantLauncher.launch(LegacyStorageAccess.createGrantIntent(volume))
+                }.isSuccess
+                if (!launched) {
+                    pendingGrantPath = null
+                    mainActivityManager.replaceCurrentTabWith(FilesTab(device.contentHolder))
+                }
             }
             if (index != storageList.lastIndex) HorizontalDivider(thickness = 0.5.dp)
         }

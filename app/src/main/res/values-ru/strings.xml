@@ -458,4 +458,7 @@
     <string name="about_original_project_desc">Prism File Explorer от Raival-e</string>
     <string name="about_license">Лицензия</string>
     <string name="about_license_desc">GNU General Public License v3.0</string>
+    <string name="sd_card_access_hint">Выберите корень накопителя и разрешите доступ, чтобы изменять файлы</string>
+    <string name="sd_card_access_read_only">Нет доступа на запись: накопитель открыт только для чтения</string>
+    <string name="sd_card_access_wrong_folder">Выберите корневую папку накопителя</string>
 </resources>

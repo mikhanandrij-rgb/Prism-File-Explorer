@@ -1,5 +1,6 @@
 package com.raival.compose.file.explorer.screen.main
 
+import com.raival.compose.file.explorer.common.storage.FileOps
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -335,7 +336,7 @@ class MainActivityManager {
             globalClass.textEditorManager.fileInstanceList.apply {
                 forEach {
                     if (it.requireSave) {
-                        it.file.writeText(it.content.toString())
+                        FileOps.writeText(it.file, it.content.toString())
                     }
                 }
                 clear()

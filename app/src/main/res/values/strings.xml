@@ -458,4 +458,7 @@
     <string name="about_original_project_desc">Prism File Explorer by Raival-e</string>
     <string name="about_license">License</string>
     <string name="about_license_desc">GNU General Public License v3.0</string>
+    <string name="sd_card_access_hint">Select the root of the storage device and allow access so files can be changed</string>
+    <string name="sd_card_access_read_only">No write access: the storage device is opened read-only</string>
+    <string name="sd_card_access_wrong_folder">Please select the root folder of the storage device</string>
 </resources>

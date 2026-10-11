@@ -1,5 +1,6 @@
 package com.raival.compose.file.explorer.screen.main.tab.files.task
 
+import com.raival.compose.file.explorer.common.storage.FileOps
 import com.raival.compose.file.explorer.App.Companion.globalClass
 import com.raival.compose.file.explorer.App.Companion.logger
 import com.raival.compose.file.explorer.R
@@ -200,7 +201,7 @@ class RenameTask(val sourceContent: List<ContentHolder>) : Task() {
                     val localFile = itemToRename.source as LocalFileHolder
                     val newFile = File(itemToRename.newPath)
 
-                    if (localFile.file.renameTo(newFile)) {
+                    if (FileOps.rename(localFile.file, newFile)) {
                         itemToRename.status = TaskContentStatus.SUCCESS
                     } else {
                         throw Exception(globalClass.getString(R.string.failed_to_rename_file))

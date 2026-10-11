@@ -1,5 +1,6 @@
 package com.raival.compose.file.explorer.screen.main.tab.files.task
 
+import com.raival.compose.file.explorer.common.storage.FileOps
 import com.raival.compose.file.explorer.App.Companion.globalClass
 import com.raival.compose.file.explorer.App.Companion.logger
 import com.raival.compose.file.explorer.R
@@ -174,7 +175,7 @@ class DeleteTask(
 
                 try {
                     val localFile = itemToDelete.source as LocalFileHolder
-                    if (localFile.file.deleteRecursively()) {
+                    if (FileOps.delete(localFile.file)) {
                         itemToDelete.status = TaskContentStatus.SUCCESS
                     } else {
                         throw Exception(globalClass.getString(R.string.failed_to_delete_file))
