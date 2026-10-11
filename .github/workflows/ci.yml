@@ -122,15 +122,16 @@ jobs:
       - name: Annotate results
         if: always()
         run: |
-          [ "${{ job.status }}" != "success" ] && [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
-          if [ -f logcat.txt ]; then
-            grep -E " mpv *:|libmpv|AndroidRuntime|FATAL|ANR in|TestRunner: (started|failed|finished)|TestTimedOut|DEBUG  :|libEGL|swiftshader" logcat.txt \
-              | grep -v THREAD_STATE | head -n 400 > logcat-filtered.txt || true
-            python3 scripts/ci_annotate.py notice logcat-filtered.txt logcat
+          python3 scripts/junit_summary.py 'app/build/outputs/androidTest-results/connected/**/*.xml' > junit-summary.txt || true
+          [ -s junit-summary.txt ] && python3 scripts/ci_annotate.py notice junit-summary.txt junit
+          if [ "${{ job.status }}" != "success" ]; then
+            [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
+            if [ -f logcat.txt ]; then
+              grep -E " mpv *:|libmpv|AndroidRuntime|FATAL|ANR in|TestRunner|TestTimedOut|DEBUG  :" logcat.txt \
+                | grep -v THREAD_STATE | grep -E " [EWF] |TestRunner: (started|failed|run)" | tail -n 150 > logcat-filtered.txt || true
+              python3 scripts/ci_annotate.py notice logcat-filtered.txt logcat
+            fi
           fi
-          for f in app/build/outputs/androidTest-results/connected/debug/*.xml app/build/outputs/androidTest-results/connected/*/*.xml; do
-            [ -f "$f" ] && python3 scripts/ci_annotate.py notice "$f" junit-xml
-          done
           true
 
       - name: Upload instrumented test reports
