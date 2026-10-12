@@ -16,7 +16,7 @@ sealed interface ShaderSelection {
     data class Anime4KPreset(val mode: Anime4K.Mode, val level: Anime4K.Level) : ShaderSelection
     data class Custom(val presetId: String) : ShaderSelection
 
-    /** One of [BundledShaders.presets] (ArtCNN, Anime4K GAN). */
+    /** One of [BundledShaders.presets] (ArtCNN). */
     data class Bundled(val presetId: String) : ShaderSelection
 
     fun encode(): String = when (this) {

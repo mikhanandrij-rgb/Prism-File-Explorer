@@ -99,9 +99,9 @@ The video player is built on **libmpv** (mpv 0.41, FFmpeg, libplacebo, libass):
 
 - Hardware decoding (MediaCodec) rendered through `gpu-next`, all common codecs and containers
   (H.264, HEVC incl. 10-bit, AV1, VP9, MKV, MP4, AVI, MOV, FLAC, Opus, DTS, …)
-- **Real-time neural upscaling for anime**, ranked by measured quality: ArtCNN (C4F16/C4F32,
-  plain and DS), Anime4K (modes A, B, C, A+A, B+B, C+A; levels Fast to
-  Ultra, official mpv chains) and experimental Anime4K GAN (x3 VL, x4 UUL). Shaders are rewritten
+- **Real-time neural upscaling for anime**: ArtCNN C4F16 DS / C4F32 DS (current upstream
+  weights, regenerated as GLES fragment shaders) and Anime4K (modes A, B, C, A+A, B+B, C+A;
+  levels Fast to Ultra, official mpv chains). Shaders are rewritten
   for mobile GLSL ES at install time. Upscaling only runs when the screen is larger than the
   video, and the choice never changes by itself; the stats overlay shows the render time per
   frame against the frame budget.

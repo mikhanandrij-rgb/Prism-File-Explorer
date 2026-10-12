@@ -578,14 +578,6 @@ private fun Meter(label: String, value: Int, color: androidx.compose.ui.graphics
 
 private fun upscalerDescription(key: String): Int? = when (key) {
     "artcnn_c4f32_ds" -> R.string.upscaler_artcnn_c4f32_ds_desc
-    "artcnn_c4f32" -> R.string.upscaler_artcnn_c4f32_desc
     "artcnn_c4f16_ds" -> R.string.upscaler_artcnn_c4f16_ds_desc
-    "artcnn_c4f16" -> R.string.upscaler_artcnn_c4f16_desc
-    "a4k_c_quality" -> R.string.upscaler_a4k_c_quality_desc
-    "a4k_a_ultra" -> R.string.upscaler_a4k_a_ultra_desc
-    "a4k_a_quality" -> R.string.upscaler_a4k_a_quality_desc
-    "a4k_a_fast" -> R.string.upscaler_a4k_a_fast_desc
-    "gan_x3_vl" -> R.string.upscaler_gan_x3_vl_desc
-    "gan_x4_uul" -> R.string.upscaler_gan_x4_uul_desc
     else -> null
 }

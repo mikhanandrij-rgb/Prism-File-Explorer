@@ -6,33 +6,26 @@ import java.io.File
 /**
  * Upscalers bundled with the app besides the Anime4K CNN chains ([Anime4K]):
  *
- * - ArtCNN (https://github.com/Artoriuz/ArtCNN, MIT): modern anime CNN, luma doubler.
- *   DS variants also denoise and sharpen (good for compressed web releases). Bundled is the
- *   last fragment-shader release: newer ones are compute shaders, and libplacebo's OpenGL ES
- *   backend has no compute support (it enables compute on desktop GL 4.3+ only).
- * - Anime4K GAN (experimental, from the Anime4K repository): generative upscalers that
- *   reconstruct texture instead of only sharpening; x3 / x4 suit SD sources.
+ * - ArtCNN (https://github.com/Artoriuz/ArtCNN, MIT): modern anime CNN, luma doubler; the DS
+ *   variants also denoise and sharpen (good for compressed web releases). Upstream ships the
+ *   current models only as compute shaders, and libplacebo's OpenGL ES backend has no compute
+ *   support (desktop GL 4.3+ only), so the bundled files are generated from the upstream ONNX
+ *   weights as fragment shaders by scripts/artcnn_glsl.py (see assets/artcnn/SOURCE.txt).
  *
  * Every file is rewritten by [ShaderSanitizer] when installed.
  */
 object BundledShaders {
 
     /** Bump when bundled files change so installed copies are refreshed. */
-    private const val VERSION = 3
+    private const val VERSION = 4
 
-    enum class Family { ARTCNN, ANIME4K_GAN }
+    enum class Family { ARTCNN }
 
     data class Preset(val id: String, val family: Family, val files: List<String>)
 
-    private const val CLAMP = "Anime4K_Clamp_Highlights.glsl"
-
     val presets: List<Preset> = listOf(
-        Preset("artcnn_c4f16", Family.ARTCNN, listOf("ArtCNN_C4F16.glsl")),
         Preset("artcnn_c4f16_ds", Family.ARTCNN, listOf("ArtCNN_C4F16_DS.glsl")),
-        Preset("artcnn_c4f32", Family.ARTCNN, listOf("ArtCNN_C4F32.glsl")),
-        Preset("artcnn_c4f32_ds", Family.ARTCNN, listOf("ArtCNN_C4F32_DS.glsl")),
-        Preset("gan_x3_vl", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x3_VL.glsl")),
-        Preset("gan_x4_uul", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x4_UUL.glsl"))
+        Preset("artcnn_c4f32_ds", Family.ARTCNN, listOf("ArtCNN_C4F32_DS.glsl"))
     )
 
     fun preset(id: String): Preset? = presets.firstOrNull { it.id == id }

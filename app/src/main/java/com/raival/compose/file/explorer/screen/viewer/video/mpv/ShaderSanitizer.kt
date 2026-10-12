@@ -29,7 +29,7 @@ package com.raival.compose.file.explorer.screen.viewer.video.mpv
  *    -> such thread ids become `ivec2`, and loops over them use `int`.
  *
  * 6. Passes sampling more textures than mobile GPUs reliably allow. GLSL ES guarantees only 16
- *    texture units per fragment shader, and the largest networks (Anime4K UL / GAN UUL, ArtCNN
+ *    texture units per fragment shader, and the largest networks (Anime4K VL / UL, ArtCNN
  *    C4F32) have 1x1 merge passes binding exactly 16 inputs, which fails to link on some GPUs.
  *    Those passes are plain sums (`result += M * input`), so they are split in two exactly
  *    equivalent passes: the first sums half of the inputs into an intermediate float texture,

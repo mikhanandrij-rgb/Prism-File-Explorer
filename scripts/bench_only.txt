@@ -1,1 +1,1 @@
-artcnn_c4f32_ds
+off:artcnn_c4f16_ds:artcnn_c4f32_ds:a4k_a_quality

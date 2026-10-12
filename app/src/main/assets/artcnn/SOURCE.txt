@@ -1,4 +1,9 @@
-ArtCNN GLSL shaders from https://github.com/Artoriuz/ArtCNN
-commit d2f645a31 (2025-01-19), GLSL/*.glsl: the last fragment-shader release (model weights of 2024-11).
-Later releases are compute shaders, which libplacebo's OpenGL ES backend cannot run.
-MIT license, see LICENSE.txt
+ArtCNN by Joao Chrisostomo (Artoriuz), https://github.com/Artoriuz/ArtCNN (MIT, see LICENSE.txt).
+
+ArtCNN_C4F16_DS.glsl and ArtCNN_C4F32_DS.glsl are generated from ONNX/ArtCNN_C4F16_DS.onnx and
+ONNX/ArtCNN_C4F32_DS.onnx of commit 8789539dfae120f2877a89bb6218026d56809612 (release v1.6.x, DS weights of 2025-09)
+with scripts/artcnn_glsl.py, as fragment shaders: upstream ships these models only as compute
+shaders, which libplacebo's OpenGL ES backend (Android) cannot run. The layout is the one of the
+last upstream fragment-shader release (d2f645a). ArtCNN_C4F32_DS.glsl computes in mediump (fp16
+on mobile GPUs, as upstream's compute shaders use float16 when available); its output differs
+from the ONNX model by less than 1/255 away from frame borders.
