@@ -509,4 +509,7 @@
     <string name="video_shaders_my_files_empty">No imported shaders yet.</string>
     <string name="video_shaders_builtin">Bundled Anime4K shaders</string>
     <string name="video_shaders_add">Add to preset</string>
+    <string name="video_compare_original">Original (no shaders)</string>
+    <string name="video_compare_hold">Hold to compare with the original</string>
+    <string name="video_gpu_no_float">This GPU cannot render to floating-point textures. Neural-network shaders such as Anime4K will look wrong on it.</string>
 </resources>

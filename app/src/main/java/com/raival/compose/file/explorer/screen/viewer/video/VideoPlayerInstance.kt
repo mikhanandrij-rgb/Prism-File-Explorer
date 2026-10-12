@@ -19,6 +19,7 @@ import com.raival.compose.file.explorer.screen.viewer.video.model.MediaTrack
 import com.raival.compose.file.explorer.screen.viewer.video.model.PlaybackStats
 import com.raival.compose.file.explorer.screen.viewer.video.model.VideoPlayerState
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.GpuCaps
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.PlaybackAudioFocus
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderPreset
@@ -90,6 +91,7 @@ class VideoPlayerInstance(
     /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
     @Volatile private var hwdecOverride: String? = null
     @Volatile private var verboseVideoLog = false
+    private var initStarted = false
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
     private var surfaceHolder: SurfaceHolder? = null
@@ -113,7 +115,8 @@ class VideoPlayerInstance(
      * which keeps playback continuous across configuration changes.
      */
     suspend fun initializePlayer(context: Context, uri: Uri) = withContext(Dispatchers.Main.immediate) {
-        if (mpv != null) return@withContext
+        if (mpv != null || initStarted) return@withContext
+        initStarted = true
 
         val ctx = context.applicationContext
         appContext = ctx
@@ -124,6 +127,7 @@ class VideoPlayerInstance(
                 .getString(DEBUG_HWDEC_KEY, null)
         }
         val library = ShaderLibrary(ctx).also { library = it }
+        val gpu = withContext(Dispatchers.Default) { GpuCaps.get(ctx) }
         val restore = pendingRestore.also { pendingRestore = null }
         val selection = restore?.shaderSelection?.let(ShaderSelection::decode) ?: library.selection
         val shaderFiles = library.shaderFiles(selection)
@@ -136,6 +140,7 @@ class VideoPlayerInstance(
                 title = uri.name ?: globalClass.getString(R.string.unknown),
                 shaderSelection = selection,
                 customPresets = library.presets(),
+                gpuSupportsFloat = gpu.floatRenderTargets,
                 errorMessage = null
             )
         }
@@ -370,17 +375,31 @@ class VideoPlayerInstance(
         )
     }
 
-    private fun applyShaders(lib: MPVLib, files: List<File>) {
+    /** While held, shows the picture without shaders (for comparison). */
+    fun setCompareOriginal(original: Boolean) {
+        val library = library ?: return
+        _playerState.update { it.copy(comparingOriginal = original) }
+        val files = if (original) emptyList() else library.shaderFiles(_playerState.value.shaderSelection)
+        post { lib -> applyShaders(lib, files, switchDecoder = false) }
+    }
+
+    private fun applyShaders(lib: MPVLib, files: List<File>, switchDecoder: Boolean = true) {
         // User shaders hook into the texture pipeline; frames must be copied out of MediaCodec
         // for that. Without shaders, zero-copy decoding is cheaper.
-        val hwdec = hwdecOverride ?: hwdecFor(shadersActive = files.isNotEmpty())
-        if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
+        if (switchDecoder) {
+            val hwdec = hwdecOverride ?: hwdecFor(shadersActive = files.isNotEmpty())
+            if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
+        }
         if (files.isEmpty()) {
             lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
         } else {
             lib.command(
                 arrayOf("change-list", "glsl-shaders", "set", files.joinToString(":") { it.absolutePath })
             )
+        }
+        // A paused frame is not re-rendered on its own: redraw it so the change is visible.
+        if (lib.getPropertyBoolean("pause") == true) {
+            lib.command(arrayOf("seek", "0", "relative+exact"))
         }
     }
 
@@ -448,8 +467,24 @@ class VideoPlayerInstance(
             decoderDrops = (lib.getPropertyInt("decoder-frame-drop-count") ?: 0).toLong(),
             outputDrops = (lib.getPropertyInt("frame-drop-count") ?: 0).toLong(),
             delayedFrames = (lib.getPropertyInt("vo-delayed-frame-count") ?: 0).toLong(),
-            activeShaders = activeShaderCount
+            activeShaders = activeShaderCount,
+            renderPasses = lib.getPropertyInt("vo-passes/fresh/count") ?: -1,
+            shaderPasses = countShaderPasses(lib),
+            gpu = appContext?.let { GpuCaps.get(it) }
         )
+    }
+
+    /** Passes of user shaders mpv actually ran for the last fresh frame. */
+    private fun countShaderPasses(lib: MPVLib): Int {
+        val count = lib.getPropertyInt("vo-passes/fresh/count") ?: return -1
+        val builtIn = setOf("scale", "color", "convert", "dither", "output", "sample", "debanding",
+            "film grain", "deband", "overlay", "osd", "linearize", "sigmoid", "peak", "tone", "icc")
+        var user = 0
+        for (i in 0 until count) {
+            val desc = lib.getPropertyString("vo-passes/fresh/$i/desc")?.lowercase() ?: continue
+            if (desc.contains("anime4k") || builtIn.none { desc.contains(it) }) user++
+        }
+        return user
     }
 
     /** Latest playback position reported by mpv (ms). Never blocks. */

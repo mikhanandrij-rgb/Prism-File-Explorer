@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -172,6 +173,24 @@ fun VideoPlayerScreen(
                 }
         )
 
+        if (playerState.comparingOriginal) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(top = 64.dp),
+                color = Color.Black.copy(alpha = 0.7f),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.video_compare_original),
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+        }
+
         if (playerState.showStats) {
             StatsOverlay(
                 stats = playerState.stats,
@@ -216,7 +235,11 @@ fun VideoPlayerScreen(
                     videoPlayerInstance.toggleMute()
                 },
                 onOpenUpscaling = { sheet = PlayerSheet.UPSCALING },
-                onOpenTracks = { sheet = PlayerSheet.TRACKS }
+                onOpenTracks = { sheet = PlayerSheet.TRACKS },
+                onCompare = { original ->
+                    interaction++
+                    videoPlayerInstance.setCompareOriginal(original)
+                }
             )
         }
 
@@ -279,7 +302,8 @@ fun VideoControls(
     onSeekDrag: () -> Unit,
     onBackPressed: () -> Unit,
     onOpenUpscaling: () -> Unit,
-    onOpenTracks: () -> Unit
+    onOpenTracks: () -> Unit,
+    onCompare: (Boolean) -> Unit
 ) {
     val scrim = Color.Black
 
@@ -304,6 +328,7 @@ fun VideoControls(
             onToggleMute = onToggleMute,
             onOpenUpscaling = onOpenUpscaling,
             onOpenTracks = onOpenTracks,
+            onCompare = onCompare,
             modifier = Modifier.align(Alignment.TopStart)
         )
 
@@ -334,6 +359,7 @@ fun TopBar(
     onToggleMute: () -> Unit,
     onOpenUpscaling: () -> Unit,
     onOpenTracks: () -> Unit,
+    onCompare: (Boolean) -> Unit,
     modifier: Modifier,
 ) {
     Row(
@@ -369,6 +395,10 @@ fun TopBar(
                 contentDescription = stringResource(R.string.video_shaders_title),
                 tint = if (active) colorScheme.primary else Color.White
             )
+        }
+
+        if (playerState.shaderSelection != ShaderSelection.Off) {
+            CompareButton(onCompare = onCompare)
         }
 
         IconButton(onClick = onOpenTracks) {
@@ -619,7 +649,13 @@ private fun StatsOverlay(stats: PlaybackStats?, state: VideoPlayerState, modifie
                         " / display ${stats.displayFps?.let { "%.0f".format(Locale.ROOT, it) } ?: "?"}"
             )
             appendLine("Drops  decoder ${stats.decoderDrops} · output ${stats.outputDrops} · late ${stats.delayedFrames}")
-            append("Shader " + shaderLabel(state, stats.activeShaders))
+            appendLine("Shader " + shaderLabel(state, stats.activeShaders))
+            if (stats.renderPasses >= 0) {
+                appendLine("Passes ${stats.renderPasses} total · ${stats.shaderPasses} from shaders")
+            }
+            stats.gpu?.let { gpu ->
+                append("GPU    ${gpu.renderer.take(28)} · float ${if (gpu.floatRenderTargets) "yes" else "NO"}")
+            }
         }
         Text(
             text = text,
@@ -641,3 +677,31 @@ private fun shaderLabel(state: VideoPlayerState, count: Int): String =
             (state.customPresets.firstOrNull { it.id == selection.presetId }?.name ?: "custom") +
                     " · $count files"
     }
+
+/** Press and hold to see the picture without shaders. */
+@Composable
+private fun CompareButton(onCompare: (Boolean) -> Unit) {
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        onCompare(true)
+                        try {
+                            tryAwaitRelease()
+                        } finally {
+                            onCompare(false)
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Compare,
+            contentDescription = stringResource(R.string.video_compare_hold),
+            tint = Color.White
+        )
+    }
+}

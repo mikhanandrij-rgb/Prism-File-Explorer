@@ -509,4 +509,7 @@
     <string name="video_shaders_my_files_empty">Пока нет импортированных шейдеров.</string>
     <string name="video_shaders_builtin">Встроенные шейдеры Anime4K</string>
     <string name="video_shaders_add">Добавить в пресет</string>
+    <string name="video_compare_original">Оригинал (без шейдеров)</string>
+    <string name="video_compare_hold">Удерживайте, чтобы сравнить с оригиналом</string>
+    <string name="video_gpu_no_float">GPU этого устройства не умеет рендерить в float-текстуры. Нейросетевые шейдеры вроде Anime4K будут выглядеть неправильно.</string>
 </resources>

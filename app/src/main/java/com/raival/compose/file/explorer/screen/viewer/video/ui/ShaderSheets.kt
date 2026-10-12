@@ -119,6 +119,15 @@ internal fun ShaderSheet(
 
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
+            if (!state.gpuSupportsFloat) {
+                Text(
+                    text = stringResource(R.string.video_gpu_no_float),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colorScheme.error,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
             // --- Anime4K ------------------------------------------------------------------
             Text(stringResource(R.string.anime4k_title), style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.size(8.dp))

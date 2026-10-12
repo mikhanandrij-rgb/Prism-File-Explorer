@@ -23,6 +23,10 @@ data class VideoPlayerState(
     val selectedSubtitleId: Int? = null,
     val shaderSelection: ShaderSelection = ShaderSelection.Off,
     val customPresets: List<ShaderPreset> = emptyList(),
+    /** Holding the compare button: shaders temporarily off. */
+    val comparingOriginal: Boolean = false,
+    /** False if the GPU can't render to float textures (neural-network shaders break). */
+    val gpuSupportsFloat: Boolean = true,
     val showStats: Boolean = false,
     val stats: PlaybackStats? = null,
     val errorMessage: String? = null
@@ -52,5 +56,10 @@ data class PlaybackStats(
     val decoderDrops: Long,
     val outputDrops: Long,
     val delayedFrames: Long,
-    val activeShaders: Int
+    val activeShaders: Int,
+    /** Render passes mpv ran for the last fresh frame (-1 if unknown). */
+    val renderPasses: Int = -1,
+    /** Of those, passes from user shaders (Anime4K / custom). */
+    val shaderPasses: Int = -1,
+    val gpu: com.raival.compose.file.explorer.screen.viewer.video.mpv.GpuCaps.Info? = null
 )

@@ -97,19 +97,34 @@ class ShaderVisualTest {
                 .joinToString(":") { it.absolutePath }
 
             line("device=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
+            line("gpu=${com.raival.compose.file.explorer.screen.viewer.video.mpv.GpuCaps.get(context)}")
             line("surface=${mpv.getPropertyString("android-surface-size")} video=${mpv.getPropertyInt("video-params/w")}x${mpv.getPropertyInt("video-params/h")}")
 
-            // 1) Production path: what the app does when the user picks a preset.
+            // 1) Production path, exactly as a user does it: paused video, pick a preset in the
+            //    UI. No manual redraw here: the app must re-render the paused frame itself.
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
             waitUntil("shaders cleared") { mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
-            refreshFrame(mpv)
+            Thread.sleep(2_500)
             val appOff = capture(instance, "app_off")
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.BALANCED) }
             waitUntil("shaders applied") { !mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
-            refreshFrame(mpv)
+            Thread.sleep(2_500)
             val appOn = capture(instance, "app_anime4k")
             val result = metrics(appOff, appOn)
+            val passes = anime4kPasses(mpv)
             line(compare("app (hwdec=${mpv.getPropertyString("hwdec")} current=${mpv.getPropertyString("hwdec-current")})", appOff, appOn))
+            line("anime4k passes in last frame: $passes")
+
+            // Hold-to-compare shows the original, releasing brings the shaders back.
+            onMain { instance.setCompareOriginal(true) }
+            Thread.sleep(2_500)
+            val compareOriginal = capture(instance, "compare_hold")
+            onMain { instance.setCompareOriginal(false) }
+            Thread.sleep(2_500)
+            val compareReleased = capture(instance, "compare_release")
+            val holdVsOff = metrics(appOff, compareOriginal).meanDiff
+            val releaseVsOn = metrics(appOn, compareReleased).meanDiff
+            line(String.format(Locale.ROOT, "compare: hold vs off diff=%.2f, release vs anime4k diff=%.2f", holdVsOff, releaseVsOn))
             File(outDir, "results.txt").writeText(report.toString())
 
             // 2) Experiment: each decoding mode, shaders off vs on (set directly on mpv).
@@ -134,6 +149,9 @@ class ShaderVisualTest {
 
             assertTrue("Anime4K did not change the rendered frame:\n$report", result.meanDiff > 1.0)
             assertTrue("Anime4K did not sharpen edges:\n$report", result.sharpnessGain > 1.05)
+            assertTrue("no Anime4K passes were executed:\n$report", passes > 0)
+            assertTrue("hold-to-compare did not show the original:\n$report", holdVsOff < 1.0)
+            assertTrue("releasing compare did not restore shaders:\n$report", releaseVsOn < 1.0)
         }
     }
 
@@ -181,6 +199,13 @@ class ShaderVisualTest {
         return DoubleArray(pixels.size) { i ->
             val p = pixels[i]
             0.2126 * Color.red(p) + 0.7152 * Color.green(p) + 0.0722 * Color.blue(p)
+        }
+    }
+
+    private fun anime4kPasses(mpv: MPVLib): Int {
+        val count = mpv.getPropertyInt("vo-passes/fresh/count") ?: return -1
+        return (0 until count).count { i ->
+            mpv.getPropertyString("vo-passes/fresh/$i/desc").orEmpty().contains("Anime4K", ignoreCase = true)
         }
     }
 
