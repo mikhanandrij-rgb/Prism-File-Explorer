@@ -91,10 +91,12 @@ class VideoPlayerInstance(
     /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
     @Volatile private var hwdecOverride: String? = null
     @Volatile private var verboseVideoLog = false
+    /** Debug builds only: use the real-device decoder policy on an emulator (tests). */
+    @Volatile private var devicePolicyForTests = false
     private var initStarted = false
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
-    private var surfaceHolder: SurfaceHolder? = null
+    @Volatile private var surfaceHolder: SurfaceHolder? = null
 
     private var pendingRestore: SavedPlayback? = null
 
@@ -123,8 +125,9 @@ class VideoPlayerInstance(
         if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_INFO
             verboseVideoLog = true
-            hwdecOverride = ctx.getSharedPreferences("video_player", Context.MODE_PRIVATE)
-                .getString(DEBUG_HWDEC_KEY, null)
+            val debugPrefs = ctx.getSharedPreferences("video_player", Context.MODE_PRIVATE)
+            hwdecOverride = debugPrefs.getString(DEBUG_HWDEC_KEY, null)
+            devicePolicyForTests = debugPrefs.getBoolean(DEBUG_DEVICE_POLICY_KEY, false)
         }
         val library = ShaderLibrary(ctx).also { library = it }
         val gpu = withContext(Dispatchers.Default) { GpuCaps.get(ctx) }
@@ -187,7 +190,10 @@ class VideoPlayerInstance(
             // Video output: libplacebo on OpenGL ES, MediaCodec decoding imported into GL.
             setOptionString("gpu-context", "android")
             setOptionString("opengl-es", "yes")
-            setOptionString("hwdec", hwdecOverride ?: hwdecFor(shadersActive = shaderFiles.isNotEmpty()))
+            setOptionString(
+                "hwdec",
+                hwdecOverride ?: hwdecFor(shaderFiles.isNotEmpty(), isEmulator && !devicePolicyForTests)
+            )
             setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
             setOptionString("vo", if (holder != null) VIDEO_OUTPUT else "null")
             setOptionString("force-window", if (holder != null) "yes" else "no")
@@ -383,26 +389,67 @@ class VideoPlayerInstance(
         post { lib -> applyShaders(lib, files, switchDecoder = false) }
     }
 
+    /**
+     * Applies [files] as user shaders. Runs on the control thread.
+     *
+     * Order matters on real GPUs. With zero-copy decoding a frame is an external OES texture,
+     * and the shader macros use textureLod(), which GLSL ES doesn't allow on samplerExternalOES
+     * (Adreno rejects it; the emulator's ANGLE accepts it). libplacebo also disables a hook for
+     * good once it failed to compile. So when shaders are turned on:
+     *   1. switch to copy decoding and wait until the decoder really changed,
+     *   2. if frames were zero-copy before, re-create the renderer (drops any OES frames
+     *      already queued and any hook disabled by an earlier failure),
+     *   3. only then set the shaders.
+     * Turning them off goes the other way round.
+     */
     private fun applyShaders(lib: MPVLib, files: List<File>, switchDecoder: Boolean = true) {
-        // User shaders hook into the texture pipeline; frames must be copied out of MediaCodec
-        // for that. Without shaders, zero-copy decoding is cheaper.
-        if (switchDecoder) {
-            val hwdec = hwdecOverride ?: hwdecFor(shadersActive = files.isNotEmpty())
-            if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
-        }
-        if (files.isEmpty()) {
-            lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
-        } else {
-            lib.command(
-                arrayOf("change-list", "glsl-shaders", "set", files.joinToString(":") { it.absolutePath })
-            )
-        }
-        // A paused frame is not re-rendered on its own: redraw it so the change is visible.
-        if (lib.getPropertyBoolean("pause") == true) {
-            // Exact seek to the current timestamp re-renders the very same frame.
-            lib.getPropertyDouble("time-pos")?.let { pos ->
-                lib.command(arrayOf("seek", String.format(Locale.ROOT, "%.6f", pos), "absolute+exact"))
+        val shadersOn = files.isNotEmpty()
+        if (shadersOn) {
+            if (switchDecoder) {
+                val wasZeroCopy = lib.getPropertyString("hwdec-current") == "mediacodec"
+                setDecoder(lib, shadersActive = true)
+                if (wasZeroCopy) {
+                    awaitDecoder(lib) { it != "mediacodec" }
+                    recreateRenderer(lib)
+                }
             }
+            lib.command(arrayOf("change-list", "glsl-shaders", "set", files.joinToString(":") { it.absolutePath }))
+        } else {
+            lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
+            if (switchDecoder) setDecoder(lib, shadersActive = false)
+        }
+        redrawIfPaused(lib)
+    }
+
+    private fun setDecoder(lib: MPVLib, shadersActive: Boolean) {
+        val hwdec = hwdecOverride ?: hwdecFor(shadersActive, isEmulator && !devicePolicyForTests)
+        if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
+    }
+
+    /** Waits (bounded) until hwdec-current satisfies [done]; a paused player needs a re-decode. */
+    private fun awaitDecoder(lib: MPVLib, done: (String) -> Boolean) {
+        redrawIfPaused(lib)
+        val deadline = System.currentTimeMillis() + 3_000
+        while (System.currentTimeMillis() < deadline) {
+            val current = lib.getPropertyString("hwdec-current") ?: "no"
+            if (done(current)) return
+            Thread.sleep(50)
+        }
+        logger.logError("mpv: decoder did not switch in time (hwdec-current=${lib.getPropertyString("hwdec-current")})")
+    }
+
+    /** Re-creates the video output (and its libplacebo renderer) on the attached surface. */
+    private fun recreateRenderer(lib: MPVLib) {
+        if (surfaceHolder == null) return
+        lib.setOptionString("vo", "null")
+        lib.setOptionString("vo", VIDEO_OUTPUT)
+    }
+
+    /** A paused frame is not re-rendered on its own: an exact seek to the same timestamp is. */
+    private fun redrawIfPaused(lib: MPVLib) {
+        if (lib.getPropertyBoolean("pause") != true) return
+        lib.getPropertyDouble("time-pos")?.let { pos ->
+            lib.command(arrayOf("seek", String.format(Locale.ROOT, "%.6f", pos), "absolute+exact"))
         }
     }
 
@@ -589,7 +636,11 @@ class VideoPlayerInstance(
 
     /** Tells the user when one of their shaders fails to compile (at most every 5 s). */
     private fun reportShaderError(prefix: String, text: String) {
-        if (activeShaderCount == 0 || !prefix.startsWith("vo/")) return
+        // Only shader compile/hook failures from the renderer; decoder hiccups are not the user's
+        // shader's fault (e.g. "acquireLatestImage failed" while switching decoders).
+        val shaderProblem = prefix.contains("libplacebo") &&
+                Regex("shader|hook|compile|glsl", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        if (activeShaderCount == 0 || !shaderProblem) return
         val now = System.currentTimeMillis()
         if (now - lastShaderErrorAt < 5_000) return
         lastShaderErrorAt = now
@@ -733,14 +784,15 @@ class VideoPlayerInstance(
 
         /** SharedPreferences key ("video_player") honoured in debuggable builds only. */
         const val DEBUG_HWDEC_KEY = "debug_hwdec_override"
+        const val DEBUG_DEVICE_POLICY_KEY = "debug_device_hwdec_policy"
 
         /**
          * - shaders active: mediacodec-copy (frames in normal textures, shaders apply)
          * - otherwise: zero-copy mediacodec, copy as fallback
          * Emulators' zero-copy path stalls on every frame, so they always copy.
          */
-        internal fun hwdecFor(shadersActive: Boolean): String = when {
-            shadersActive || isEmulator -> "mediacodec-copy"
+        internal fun hwdecFor(shadersActive: Boolean, emulator: Boolean): String = when {
+            shadersActive || emulator -> "mediacodec-copy"
             else -> "mediacodec,mediacodec-copy"
         }
 

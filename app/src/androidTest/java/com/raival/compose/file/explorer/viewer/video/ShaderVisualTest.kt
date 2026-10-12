@@ -157,6 +157,58 @@ class ShaderVisualTest {
         }
     }
 
+    /**
+     * The real-device flow: without shaders the video is decoded zero-copy (external OES
+     * frames); turning Anime4K on must switch to copy decoding first, re-create the renderer
+     * and only then compile the shaders (Adreno can't sample OES frames with textureLod).
+     */
+    @Test
+    fun enablingAnime4kFromZeroCopyDecodingSwitchesDecoderFirst() {
+        context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
+            .putBoolean(VideoPlayerInstance.DEBUG_DEVICE_POLICY_KEY, true)
+            .commit()
+        val intent = Intent(context, VideoPlayerActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .setDataAndType(videoUri, "video/mp4")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+        ActivityScenario.launch<VideoPlayerActivity>(intent).use { scenario ->
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            val instance = waitForPlayback()
+            val mpv = onMain { instance.engineHandle() } as MPVLib
+            val decoderBefore = mpv.getPropertyString("hwdec-current")
+            line("zero-copy flow: decoder before=$decoderBefore")
+            onMain { instance.pause() }
+            waitUntil("paused") { !onMain { instance.playerState.value.isPlaying } }
+            Thread.sleep(1_500)
+            val off = capture(instance, "zerocopy_off")
+
+            onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.BALANCED) }
+            waitUntil("shaders applied") { !mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
+            Thread.sleep(3_000)
+            val on = capture(instance, "zerocopy_anime4k")
+            val decoderAfter = mpv.getPropertyString("hwdec-current")
+            val passes = anime4kPasses(mpv)
+            val m = metrics(off, on)
+            line("zero-copy flow: decoder after=$decoderAfter passes=$passes")
+            line(compare("zero-copy flow", off, on))
+
+            onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
+            waitUntil("shaders cleared") { mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
+            onMain { instance.playPause() }
+            Thread.sleep(2_000)
+            val decoderOff = mpv.getPropertyString("hwdec-current")
+            val playing = onMain { instance.playerState.value.isPlaying }
+            line("zero-copy flow: decoder after turning shaders off=$decoderOff playing=$playing")
+            File(outDir, "results-zerocopy.txt").writeText(report.toString())
+
+            assertTrue("decoder did not switch to copy:\n$report", decoderAfter == "mediacodec-copy")
+            assertTrue("no Anime4K passes ran:\n$report", passes > 0)
+            assertTrue("Anime4K did not sharpen:\n$report", m.sharpnessGain > 1.05)
+            assertTrue("playback did not resume after turning shaders off:\n$report", playing)
+        }
+    }
+
     @Test
     fun importedCustomShaderPresetIsApplied() {
         // A user shader file, imported the same way as from the file picker.
