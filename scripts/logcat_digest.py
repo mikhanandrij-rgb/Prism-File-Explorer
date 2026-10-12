@@ -14,7 +14,8 @@ for line in open(sys.argv[1], errors="replace"):
         out.append(line.rstrip())
     elif re.search(r" I mpv\s*:", line) and KEEP_MPV.search(line):
         out.append(line.rstrip())
-    elif re.search(r"ShaderVisualTest|AndroidRuntime|FATAL|ANR in", line):
+    elif re.search(r"ShaderVisualTest|UpscalerBenchmark|AndroidRuntime|FATAL|ANR in|lowmemorykiller|"
+                   r" DEBUG\s*:|libc\s*:|ActivityManager: .*(died|Killing|Process .* has died)", line):
         out.append(line.rstrip())
 # collapse consecutive duplicates
 dedup = [l for i, l in enumerate(out) if i == 0 or l[33:] != out[i - 1][33:]]

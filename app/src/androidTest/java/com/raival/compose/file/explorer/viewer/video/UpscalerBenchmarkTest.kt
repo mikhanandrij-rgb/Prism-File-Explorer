@@ -93,59 +93,64 @@ class UpscalerBenchmarkTest {
 
     @Test
     fun everyUpscalerCompilesRunsAndIsCaptured() {
+        val failures = mutableListOf<String>()
+        line("device=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
+        line("id\tshader_passes\ttotal_passes\trender_ms\tstatus")
+        // Every option in a fresh player, opened with the option already chosen (the path a
+        // user takes when reopening a video). One player for all options would keep every
+        // compiled shader alive, which a software-rendering emulator can't hold in memory.
+        for (candidate in candidates) {
+            val status = runCatching { measure(candidate) }.getOrElse { "FAILED ${it.message?.take(160)}" }
+            if (status != "ok") failures += "${candidate.id}: $status"
+        }
+        assertTrue("upscalers failed:\n${failures.joinToString("\n")}\n$report", failures.isEmpty())
+    }
+
+    private fun measure(candidate: Candidate): String {
+        com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary(context).selection = candidate.selection
+        val descs = expectedDescs(candidate.selection)
         val intent = Intent(context, VideoPlayerActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
             .setDataAndType(videoUri, "video/mp4")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        val failures = mutableListOf<String>()
-
-        ActivityScenario.launch<VideoPlayerActivity>(intent).use { scenario ->
+        val status = ActivityScenario.launch<VideoPlayerActivity>(intent).use { scenario ->
             scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             val instance = waitForPlayback()
             val mpv = onMain { instance.engineHandle() } as MPVLib
             onMain { instance.pause() }
             waitUntil("paused") { !onMain { instance.playerState.value.isPlaying } }
-            line("device=${Build.MODEL} sdk=${Build.VERSION.SDK_INT}")
-            line("id\tshader_passes\ttotal_passes\trender_ms\tstatus")
-
-            for (candidate in candidates) {
-                onMain { instance.selectShaders(candidate.selection) }
-                val descs = expectedDescs(candidate.selection)
-                waitUntil("${candidate.id} set", 60_000) {
-                    val set = mpv.getPropertyString("glsl-shaders").orEmpty()
-                    if (descs.isEmpty()) set.isEmpty() else set.isNotEmpty()
-                }
-                refreshFrame(mpv)
-                // Wait until the last rendered frame ran this candidate's passes (or none for off).
-                var passes = Triple(0, 0, 0.0)
-                val deadline = System.currentTimeMillis() + 90_000
-                while (System.currentTimeMillis() < deadline) {
-                    passes = passes(mpv, descs)
-                    val error = onMain { instance.playerState.value.shaderErrorReport }
-                    if (error != null) break
-                    if (descs.isEmpty() || passes.first > 0) break
-                    Thread.sleep(500)
-                }
-                Thread.sleep(1_500)
-                val error = onMain { instance.playerState.value.shaderErrorReport }
-                val status = when {
-                    error != null -> "COMPILE_ERROR ${error.firstError.replace('\n', ' ').take(160)}"
-                    descs.isNotEmpty() && passes.first == 0 -> "NO_PASSES"
-                    else -> "ok"
-                }
-                if (status != "ok") failures += "${candidate.id}: $status"
-                if (error != null) onMain { instance.dismissShaderError() }
-                capture(instance, candidate.id)
-                line(
-                    String.format(
-                        Locale.ROOT, "%s\t%d\t%d\t%.1f\t%s",
-                        candidate.id, passes.first, passes.second, passes.third, status
-                    )
-                )
+            refreshFrame(mpv)
+            // Wait until the rendered frame ran this option's passes (or none for off).
+            var passes = Triple(0, 0, 0.0)
+            val deadline = System.currentTimeMillis() + 90_000
+            while (System.currentTimeMillis() < deadline) {
+                passes = passes(mpv, descs)
+                if (onMain { instance.playerState.value.shaderErrorReport } != null) break
+                if (descs.isEmpty() || passes.first > 0) break
+                Thread.sleep(500)
             }
-            File(outDir, "results.txt").writeText(report.toString())
+            Thread.sleep(1_500)
+            val error = onMain { instance.playerState.value.shaderErrorReport }
+            val status = when {
+                error != null -> "COMPILE_ERROR ${error.firstError.replace('\n', ' ').take(160)}"
+                descs.isNotEmpty() && passes.first == 0 -> "NO_PASSES"
+                else -> "ok"
+            }
+            if (error != null) onMain { instance.dismissShaderError() }
+            capture(instance, candidate.id)
+            line(
+                String.format(
+                    Locale.ROOT, "%s\t%d\t%d\t%.1f\t%s",
+                    candidate.id, passes.first, passes.second, passes.third, status
+                )
+            )
+            status
         }
-        assertTrue("upscalers failed:\n${failures.joinToString("\n")}\n$report", failures.isEmpty())
+        // The player (and its GPU context) must be gone before the next option starts.
+        waitUntil("player released", 30_000) {
+            onMain { globalClass.viewersManager.instances.none { it is VideoPlayerInstance } }
+        }
+        return status
     }
 
     // --- helpers -------------------------------------------------------------------------
