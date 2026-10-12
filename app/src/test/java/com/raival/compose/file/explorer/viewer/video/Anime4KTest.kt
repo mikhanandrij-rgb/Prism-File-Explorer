@@ -104,7 +104,7 @@ class Anime4KTest {
 
     @Test
     fun noUnusedShadersAreBundled() {
-        val bundled = listOf("anime4k", "artcnn", "cunny").flatMap { dir ->
+        val bundled = listOf("anime4k", "artcnn").flatMap { dir ->
             File("src/main/assets", dir).listFiles { f -> f.extension == "glsl" }!!.map { it.name }
         }.toSet()
         assertEquals(BundledShaders.allFiles, bundled)

@@ -108,14 +108,20 @@ class UpscalerBenchmarkTest {
         // user takes when reopening a video). One player for all options would keep every
         // compiled shader alive, which a software-rendering emulator can't hold in memory.
         for (candidate in candidates) {
-            val status = runCatching { measure(candidate) }.getOrElse { "FAILED ${it.message?.take(160)}" }
+            val status = runCatching { measure(candidate) }.getOrElse {
+                "FAILED ${it.message?.lineSequence()?.firstOrNull()?.take(160)}".also { failed ->
+                    line("${candidate.id}\t-\t-\t-\t$failed")
+                }
+            }
             if (status != "ok") failures += "${candidate.id}: $status"
         }
         assertTrue("upscalers failed:\n${failures.joinToString("\n")}\n$report", failures.isEmpty())
     }
 
     private fun measure(candidate: Candidate): String {
-        com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary(context).selection = candidate.selection
+        // Start without shaders (a CPU-rendered emulator crawls with heavy ones while playing),
+        // then switch on the paused frame like a user would.
+        com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary(context).selection = ShaderSelection.Off
         val descs = expectedDescs(candidate.selection)
         val intent = Intent(context, VideoPlayerActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
@@ -127,16 +133,25 @@ class UpscalerBenchmarkTest {
             val mpv = onMain { instance.engineHandle() } as MPVLib
             onMain { instance.pause() }
             waitUntil("paused") { !onMain { instance.playerState.value.isPlaying } }
+            onMain { instance.selectShaders(candidate.selection) }
+            waitUntil("${candidate.id} set", 60_000) {
+                val set = mpv.getPropertyString("glsl-shaders").orEmpty()
+                if (descs.isEmpty()) set.isEmpty() else set.isNotEmpty()
+            }
             refreshFrame(mpv)
-            // Wait until the rendered frame ran this option's passes (or none for off).
+            // Wait until the rendered frame ran this option's passes (or none for off) and the
+            // count is stable (a heavy frame may still be in flight).
             var passes = Triple(0, 0, 0.0)
-            val deadline = System.currentTimeMillis() + 45_000
+            var previous = -1
+            val deadline = System.currentTimeMillis() + 60_000
             while (System.currentTimeMillis() < deadline) {
                 passes = passes(mpv, descs)
                 if (onMain { instance.playerState.value.shaderErrorReport } != null) break
-                if (descs.isEmpty() || passes.first > 0) break
+                if (descs.isEmpty()) break
+                if (passes.first > 0 && passes.first == previous) break
+                previous = passes.first
                 dismissSystemDialogs()
-                Thread.sleep(500)
+                Thread.sleep(1_500)
             }
             Thread.sleep(1_500)
             val error = onMain { instance.playerState.value.shaderErrorReport }

@@ -497,8 +497,6 @@
     <string name="upscaler_artcnn_c4f32_ds_desc">Modern anime network: clean, sharp lines, also removes compression artifacts.</string>
     <string name="upscaler_artcnn_c4f32_desc">Same network without denoising: stays closest to the source.</string>
     <string name="upscaler_artcnn_c4f16_ds_desc">Light ArtCNN DS for weaker GPUs.</string>
-    <string name="upscaler_cunny_8x32_ds_desc">Large network trained on visual-novel art; denoise and sharpen.</string>
-    <string name="upscaler_cunny_4x16_ds_desc">Lighter CuNNy with denoise and sharpen.</string>
     <string name="upscaler_a4k_aa_ultra_desc">Largest Anime4K networks with double restore: strongest sharpening.</string>
     <string name="upscaler_a4k_a_quality_desc">Official Anime4K “HQ” chain.</string>
     <string name="upscaler_a4k_a_fast_desc">Lightest option, runs on almost any phone.</string>
@@ -523,6 +521,7 @@
     <string name="video_shaders_new_preset">New preset</string>
     <string name="video_shaders_import">Import .glsl</string>
     <string name="video_shaders_imported">Imported shaders: %1$d</string>
+    <string name="video_shader_compute_unsupported">%1$s is a compute shader. Android's OpenGL ES renderer can't run compute shaders; look for a fragment-shader version.</string>
     <string name="video_shaders_delete_preset">Delete preset?</string>
     <string name="video_shaders_preset_name">Preset name</string>
     <string name="video_shaders_chain">Shaders in this preset</string>

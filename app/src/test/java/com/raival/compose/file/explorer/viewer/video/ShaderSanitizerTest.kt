@@ -9,7 +9,7 @@ import java.io.File
 
 class ShaderSanitizerTest {
 
-    private val assetDirs = listOf("anime4k", "artcnn", "cunny").map { File("src/main/assets", it) }
+    private val assetDirs = listOf("anime4k", "artcnn").map { File("src/main/assets", it) }
 
     @Test
     fun removesCommentsAfterDefines() {

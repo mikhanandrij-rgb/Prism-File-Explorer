@@ -100,8 +100,8 @@ The video player is built on **libmpv** (mpv 0.41, FFmpeg, libplacebo, libass):
 - Hardware decoding (MediaCodec) rendered through `gpu-next`, all common codecs and containers
   (H.264, HEVC incl. 10-bit, AV1, VP9, MKV, MP4, AVI, MOV, FLAC, Opus, DTS, …)
 - **Real-time neural upscaling for anime**, ranked by measured quality: ArtCNN (C4F16/C4F32,
-  plain and DS), CuNNy (4x16/8x32 DS), Anime4K (modes A, B, C, A+A, B+B, C+A; levels Fast to
-  Ultra, official mpv chains) and experimental Anime4K GAN (x2 to x4 UUL). Shaders are rewritten
+  plain and DS), Anime4K (modes A, B, C, A+A, B+B, C+A; levels Fast to
+  Ultra, official mpv chains) and experimental Anime4K GAN (x3 VL, x4 UUL). Shaders are rewritten
   for mobile GLSL ES at install time. Upscaling only runs when the screen is larger than the
   video, and the choice never changes by itself; the stats overlay shows the render time per
   frame against the frame budget.
@@ -185,7 +185,6 @@ GNU General Public License for more details.
 | [libmpv-android](https://github.com/jarnedemeulemeester/libmpv-android) (packaging) | MIT |
 | [Anime4K](https://github.com/bloc97/Anime4K) shaders | MIT (`app/src/main/assets/anime4k/LICENSE.txt`) |
 | [ArtCNN](https://github.com/Artoriuz/ArtCNN) shaders | MIT (`app/src/main/assets/artcnn/LICENSE.txt`) |
-| [CuNNy](https://github.com/funnyplanter/CuNNy) shaders | LGPL-3.0 (`app/src/main/assets/cunny/LICENSE.txt`) |
 
 All are compatible with this project's GPL-3.0 license.
 

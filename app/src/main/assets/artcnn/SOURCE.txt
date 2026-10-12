@@ -1,2 +1,4 @@
 ArtCNN GLSL shaders from https://github.com/Artoriuz/ArtCNN
-commit 8789539dfae120f2877a89bb6218026d56809612 (MIT license, see LICENSE.txt)
+commit d2f645a31 (2025-01-19), GLSL/*.glsl: the last fragment-shader release (model weights of 2024-11).
+Later releases are compute shaders, which libplacebo's OpenGL ES backend cannot run.
+MIT license, see LICENSE.txt

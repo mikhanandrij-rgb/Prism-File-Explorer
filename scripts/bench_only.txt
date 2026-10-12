@@ -1,1 +1,1 @@
-off:a4k_bb_quality:a4k_ca_quality:artcnn_c4f16:artcnn_c4f16_ds:artcnn_c4f32:artcnn_c4f32_ds:cunny_4x16_ds:cunny_8x32_ds:gan_x2_m:gan_x3_l:gan_x3_vl:gan_x4_ul:gan_x4_uul
+off:a4k_bb_quality:a4k_ca_quality:artcnn_c4f16:artcnn_c4f16_ds:artcnn_c4f32:artcnn_c4f32_ds:gan_x3_vl:gan_x4_uul

@@ -575,8 +575,6 @@ private fun upscalerDescription(key: String): Int? = when (key) {
     "artcnn_c4f32_ds" -> R.string.upscaler_artcnn_c4f32_ds_desc
     "artcnn_c4f32" -> R.string.upscaler_artcnn_c4f32_desc
     "artcnn_c4f16_ds" -> R.string.upscaler_artcnn_c4f16_ds_desc
-    "cunny_8x32_ds" -> R.string.upscaler_cunny_8x32_ds_desc
-    "cunny_4x16_ds" -> R.string.upscaler_cunny_4x16_ds_desc
     "a4k_aa_ultra" -> R.string.upscaler_a4k_aa_ultra_desc
     "a4k_a_quality" -> R.string.upscaler_a4k_a_quality_desc
     "a4k_a_fast" -> R.string.upscaler_a4k_a_fast_desc

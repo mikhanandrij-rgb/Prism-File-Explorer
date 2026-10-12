@@ -6,6 +6,7 @@ import android.provider.OpenableColumns
 import androidx.core.content.edit
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.raival.compose.file.explorer.R
 import java.io.File
 import java.util.UUID
 
@@ -15,7 +16,7 @@ sealed interface ShaderSelection {
     data class Anime4KPreset(val mode: Anime4K.Mode, val level: Anime4K.Level) : ShaderSelection
     data class Custom(val presetId: String) : ShaderSelection
 
-    /** One of [BundledShaders.presets] (ArtCNN, CuNNy, Anime4K GAN). */
+    /** One of [BundledShaders.presets] (ArtCNN, Anime4K GAN). */
     data class Bundled(val presetId: String) : ShaderSelection
 
     fun encode(): String = when (this) {
@@ -107,6 +108,11 @@ class ShaderLibrary(context: Context) {
         val text = bytes.toString(Charsets.UTF_8)
         require(text.contains("//!HOOK") || text.contains("//!DESC")) {
             "$displayName is not an mpv user shader (no //!HOOK)"
+        }
+        // libplacebo's OpenGL ES backend has no compute support: such passes would silently
+        // never run. Say so instead of importing a shader that does nothing.
+        require(!text.lines().any { it.trimStart().startsWith("//!COMPUTE") }) {
+            appContext.getString(R.string.video_shader_compute_unsupported, displayName)
         }
 
         var name = displayName.replace(Regex("[^A-Za-z0-9._()\\- ]"), "_").trim()

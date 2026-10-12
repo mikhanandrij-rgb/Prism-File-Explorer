@@ -7,21 +7,20 @@ import java.io.File
  * Upscalers bundled with the app besides the Anime4K CNN chains ([Anime4K]):
  *
  * - ArtCNN (https://github.com/Artoriuz/ArtCNN, MIT): modern anime CNN, luma doubler.
- *   DS variants also denoise and sharpen (good for compressed web releases).
- * - CuNNy (https://github.com/funnyplanter/CuNNy, LGPL-3.0): CNN luma doubler trained on
- *   visual-novel art; DS variants denoise and sharpen.
+ *   DS variants also denoise and sharpen (good for compressed web releases). Bundled is the
+ *   last fragment-shader release: newer ones are compute shaders, and libplacebo's OpenGL ES
+ *   backend has no compute support (it enables compute on desktop GL 4.3+ only).
  * - Anime4K GAN (experimental, from the Anime4K repository): generative upscalers that
  *   reconstruct texture instead of only sharpening; x3 / x4 suit SD sources.
  *
- * All of them are mpv user shaders; ArtCNN and CuNNy are compute shaders (GLES 3.1).
  * Every file is rewritten by [ShaderSanitizer] when installed.
  */
 object BundledShaders {
 
     /** Bump when bundled files change so installed copies are refreshed. */
-    private const val VERSION = 2
+    private const val VERSION = 3
 
-    enum class Family { ARTCNN, CUNNY, ANIME4K_GAN }
+    enum class Family { ARTCNN, ANIME4K_GAN }
 
     data class Preset(val id: String, val family: Family, val files: List<String>)
 
@@ -32,12 +31,7 @@ object BundledShaders {
         Preset("artcnn_c4f16_ds", Family.ARTCNN, listOf("ArtCNN_C4F16_DS.glsl")),
         Preset("artcnn_c4f32", Family.ARTCNN, listOf("ArtCNN_C4F32.glsl")),
         Preset("artcnn_c4f32_ds", Family.ARTCNN, listOf("ArtCNN_C4F32_DS.glsl")),
-        Preset("cunny_4x16_ds", Family.CUNNY, listOf("CuNNy-4x16-DS.glsl")),
-        Preset("cunny_8x32_ds", Family.CUNNY, listOf("CuNNy-8x32-DS.glsl")),
-        Preset("gan_x2_m", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x2_M.glsl")),
-        Preset("gan_x3_l", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x3_L.glsl")),
         Preset("gan_x3_vl", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x3_VL.glsl")),
-        Preset("gan_x4_ul", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x4_UL.glsl")),
         Preset("gan_x4_uul", Family.ANIME4K_GAN, listOf(CLAMP, "Anime4K_Upscale_GAN_x4_UUL.glsl"))
     )
 
@@ -45,7 +39,6 @@ object BundledShaders {
 
     private fun assetDir(fileName: String): String = when {
         fileName.startsWith("ArtCNN") -> "artcnn"
-        fileName.startsWith("CuNNy") -> "cunny"
         else -> Anime4K.ASSET_DIR
     }
 

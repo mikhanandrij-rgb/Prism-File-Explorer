@@ -497,8 +497,6 @@
     <string name="upscaler_artcnn_c4f32_ds_desc">Современная сеть для аниме: чистые резкие линии, заодно убирает артефакты сжатия.</string>
     <string name="upscaler_artcnn_c4f32_desc">Та же сеть без шумодава: ближе всего к исходнику.</string>
     <string name="upscaler_artcnn_c4f16_ds_desc">Лёгкая ArtCNN DS для слабых GPU.</string>
-    <string name="upscaler_cunny_8x32_ds_desc">Большая сеть, обучена на рисовке визуальных новелл; шумодав и резкость.</string>
-    <string name="upscaler_cunny_4x16_ds_desc">Лёгкая CuNNy с шумодавом и резкостью.</string>
     <string name="upscaler_a4k_aa_ultra_desc">Самые большие сети Anime4K с двойным восстановлением: максимальная резкость.</string>
     <string name="upscaler_a4k_a_quality_desc">Официальная цепочка Anime4K «HQ».</string>
     <string name="upscaler_a4k_a_fast_desc">Самый лёгкий вариант, работает почти на любом телефоне.</string>
@@ -523,6 +521,7 @@
     <string name="video_shaders_new_preset">Новый пресет</string>
     <string name="video_shaders_import">Импорт .glsl</string>
     <string name="video_shaders_imported">Импортировано шейдеров: %1$d</string>
+    <string name="video_shader_compute_unsupported">%1$s — compute-шейдер. Рендер OpenGL ES на Android не умеет запускать compute-шейдеры; поищите версию в виде обычного (fragment) шейдера.</string>
     <string name="video_shaders_delete_preset">Удалить пресет?</string>
     <string name="video_shaders_preset_name">Название пресета</string>
     <string name="video_shaders_chain">Шейдеры в пресете</string>
