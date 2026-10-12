@@ -95,7 +95,7 @@ class UpscalerBenchmarkTest {
         context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
             .putString(VideoPlayerInstance.DEBUG_HWDEC_KEY, "no")
             .commit()
-        outDir.deleteRecursively()
+
         outDir.mkdirs()
     }
 
@@ -116,6 +116,48 @@ class UpscalerBenchmarkTest {
             if (status != "ok") failures += "${candidate.id}: $status"
         }
         assertTrue("upscalers failed:\n${failures.joinToString("\n")}\n$report", failures.isEmpty())
+    }
+
+    /** Screenshots of the shader sheet (ranked upscaler list) for a visual check. */
+    @Test
+    fun shaderSheetShowsRankedUpscalers() {
+        com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary(context).selection =
+            ShaderSelection.Bundled("artcnn_c4f32_ds")
+        val intent = Intent(context, VideoPlayerActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .setDataAndType(videoUri, "video/mp4")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        ActivityScenario.launch<VideoPlayerActivity>(intent).use { scenario ->
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            waitUntil("player created") {
+                onMain { globalClass.viewersManager.instances.any { it is VideoPlayerInstance } }
+            }
+            val instance = onMain { globalClass.viewersManager.instances.filterIsInstance<VideoPlayerInstance>().first() }
+            Thread.sleep(3_000)
+            onMain { instance.pause(); instance.setControlsVisible(true) }
+            Thread.sleep(1_000)
+            val device = androidx.test.uiautomator.UiDevice.getInstance(instrumentation)
+            val title = context.getString(com.raival.compose.file.explorer.R.string.video_shaders_title)
+            val button = device.wait(androidx.test.uiautomator.Until.findObject(androidx.test.uiautomator.By.desc(title)), 10_000)
+                ?: throw AssertionError("shader button not found")
+            button.click()
+            Thread.sleep(2_500)
+            dismissSystemDialogs()
+            saveScreenshot("sheet_1")
+            device.swipe(device.displayWidth / 2, device.displayHeight * 4 / 5, device.displayWidth / 2, device.displayHeight / 4, 30)
+            Thread.sleep(1_500)
+            saveScreenshot("sheet_2")
+        }
+    }
+
+    private fun saveScreenshot(name: String) {
+        var shot: Bitmap? = null
+        for (attempt in 1..6) {
+            shot = instrumentation.uiAutomation.takeScreenshot()
+            if (shot != null) break
+            Thread.sleep(1_000L * attempt)
+        }
+        File(outDir, "$name.png").outputStream().use { shot!!.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     private fun measure(candidate: Candidate): String {
