@@ -1,7 +1,8 @@
 package com.raival.compose.file.explorer.screen.viewer.video.model
 
 import androidx.media3.common.Player
-import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderPreset
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderSelection
 
 data class VideoPlayerState(
     val isReady: Boolean = false,
@@ -20,8 +21,8 @@ data class VideoPlayerState(
     val selectedAudioId: Int? = null,
     /** mpv track id of the selected subtitle track, or null when disabled. */
     val selectedSubtitleId: Int? = null,
-    val anime4kMode: Anime4K.Mode = Anime4K.Mode.A,
-    val anime4kLevel: Anime4K.Level = Anime4K.Level.OFF,
+    val shaderSelection: ShaderSelection = ShaderSelection.Off,
+    val customPresets: List<ShaderPreset> = emptyList(),
     val showStats: Boolean = false,
     val stats: PlaybackStats? = null,
     val errorMessage: String? = null

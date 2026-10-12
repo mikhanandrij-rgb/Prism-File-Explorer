@@ -90,6 +90,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -124,6 +126,7 @@ jobs:
         run: |
           python3 scripts/junit_summary.py 'app/build/outputs/androidTest-results/connected/**/*.xml' > junit-summary.txt || true
           [ -s junit-summary.txt ] && python3 scripts/ci_annotate.py notice junit-summary.txt junit
+          [ -f shader-test/results.txt ] && python3 scripts/ci_annotate.py notice shader-test/results.txt shader-visual
           if [ "${{ job.status }}" != "success" ]; then
             [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
             if [ -f logcat.txt ]; then
@@ -133,6 +136,18 @@ jobs:
             fi
           fi
           true
+
+      - name: Publish test screenshots to the ci-artifacts branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -d shader-test ] || exit 0
+          mkdir -p publish && cp -r shader-test publish/ && cd publish
+          printf 'Screenshots from %s (%s)\n' "$GITHUB_SHA" "$GITHUB_REF_NAME" > README.txt
+          git init -q && git checkout -q -b ci-artifacts && git add -A
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "screenshots $GITHUB_SHA"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-artifacts
 
       - name: Upload instrumented test reports
         if: always()

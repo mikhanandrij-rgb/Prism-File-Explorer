@@ -2,6 +2,8 @@ package com.raival.compose.file.explorer.screen.viewer.video
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.hardware.display.DisplayManager
+import android.view.Display
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -18,7 +20,10 @@ import com.raival.compose.file.explorer.screen.viewer.video.model.PlaybackStats
 import com.raival.compose.file.explorer.screen.viewer.video.model.VideoPlayerState
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.PlaybackAudioFocus
-import com.raival.compose.file.explorer.screen.viewer.video.mpv.VideoPlayerPrefs
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderLibrary
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderPreset
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderRef
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderSelection
 import dev.jdtech.mpv.MPVLib
 import dev.jdtech.mpv.MPVLib.MpvEvent
 import dev.jdtech.mpv.MPVLib.MpvFormat
@@ -48,13 +53,15 @@ import kotlin.math.roundToLong
  * Owns the libmpv instance for one opened video.
  *
  * Rendering: vo=gpu-next (libplacebo, OpenGL ES) with MediaCodec hardware decoding imported
- * zero-copy into the GL pipeline, so Anime4K GLSL shaders run on top of hardware decoding.
+ * zero-copy into the GL pipeline. When user shaders (Anime4K or custom) are active, decoding
+ * switches to mediacodec-copy so every frame goes through the normal texture pipeline the
+ * shaders hook into.
  *
  * Lifetime: the instance lives in ViewersManager and is retained while the activity is
  * recreated, so rotation never stops or rebuilds playback. The surface comes and goes through
  * [surfaceCallback]; without a surface mpv keeps playing with vo=null (audio continues).
  * After process death, [onRestoreState] seeds the new player with position, play/pause, speed,
- * mute, loop, selected tracks and the Anime4K preset.
+ * mute, loop, selected tracks and the shader selection.
  */
 class VideoPlayerInstance(
     override val uri: Uri,
@@ -77,7 +84,9 @@ class VideoPlayerInstance(
 
     @Volatile private var mpv: MPVLib? = null
     private var appContext: Context? = null
-    private var prefs: VideoPlayerPrefs? = null
+    private var library: ShaderLibrary? = null
+    @Volatile private var activeShaderCount = 0
+    @Volatile private var lastShaderErrorAt = 0L
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
     private var surfaceHolder: SurfaceHolder? = null
@@ -108,18 +117,19 @@ class VideoPlayerInstance(
         if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_INFO
         }
-        val prefs = VideoPlayerPrefs(ctx).also { prefs = it }
+        val library = ShaderLibrary(ctx).also { library = it }
         val restore = pendingRestore.also { pendingRestore = null }
-        val mode = restore?.anime4kMode ?: prefs.anime4kMode
-        val level = restore?.anime4kLevel ?: prefs.anime4kLevel
+        val selection = restore?.shaderSelection?.let(ShaderSelection::decode) ?: library.selection
+        val shaderFiles = library.shaderFiles(selection)
+        activeShaderCount = shaderFiles.size
 
         _playerState.update {
             it.copy(
                 isLoading = true,
                 isReady = false,
                 title = uri.name ?: globalClass.getString(R.string.unknown),
-                anime4kMode = mode,
-                anime4kLevel = level,
+                shaderSelection = selection,
+                customPresets = library.presets(),
                 errorMessage = null
             )
         }
@@ -133,7 +143,7 @@ class VideoPlayerInstance(
         }
 
         val lib = try {
-            createMpv(ctx, mode, level, restore)
+            createMpv(ctx, shaderFiles, restore)
         } catch (t: Throwable) {
             // UnsatisfiedLinkError on an unsupported ABI, or mpv failing to initialize.
             logger.logError(t)
@@ -151,8 +161,7 @@ class VideoPlayerInstance(
 
     private fun createMpv(
         ctx: Context,
-        mode: Anime4K.Mode,
-        level: Anime4K.Level,
+        shaderFiles: List<File>,
         restore: SavedPlayback?
     ): MPVLib {
         val lib = MPVLib.create(ctx) ?: error("MPVLib.create() returned null")
@@ -167,8 +176,7 @@ class VideoPlayerInstance(
             // Video output: libplacebo on OpenGL ES, MediaCodec decoding imported into GL.
             setOptionString("gpu-context", "android")
             setOptionString("opengl-es", "yes")
-            // Emulators' MediaCodec + AImageReader path stalls on every frame; decode in software there.
-            setOptionString("hwdec", if (isEmulator) "no" else "mediacodec,mediacodec-copy")
+            setOptionString("hwdec", hwdecFor(shadersActive = shaderFiles.isNotEmpty()))
             setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
             setOptionString("vo", if (holder != null) VIDEO_OUTPUT else "null")
             setOptionString("force-window", if (holder != null) "yes" else "no")
@@ -193,10 +201,14 @@ class VideoPlayerInstance(
             setOptionString("osd-level", "0")
             setOptionString("demuxer-max-bytes", "64MiB")
             setOptionString("demuxer-max-back-bytes", "32MiB")
+            displayRefreshRate(ctx)?.let {
+                setOptionString("display-fps-override", String.format(Locale.ROOT, "%.3f", it))
+            }
 
-            // Anime4K preset applies from the very first frame.
-            val shaders = Anime4K.shaderPathList(ctx, mode, level)
-            if (shaders.isNotEmpty()) setOptionString("glsl-shaders", shaders)
+            // The shader selection applies from the very first frame.
+            if (shaderFiles.isNotEmpty()) {
+                setOptionString("glsl-shaders", shaderFiles.joinToString(":") { it.absolutePath })
+            }
 
             if (restore != null) {
                 setOptionString("start", String.format(Locale.ROOT, "%.3f", restore.positionMs / 1000.0))
@@ -303,6 +315,10 @@ class VideoPlayerInstance(
         _playerState.update { it.copy(showControls = !it.showControls) }
     }
 
+    fun setControlsVisible(visible: Boolean) {
+        _playerState.update { it.copy(showControls = visible) }
+    }
+
     fun toggleRepeatMode() {
         val loop = _playerState.value.repeatMode == Player.REPEAT_MODE_OFF
         post { it.setPropertyString("loop-file", if (loop) "inf" else "no") }
@@ -316,20 +332,71 @@ class VideoPlayerInstance(
         post { it.setPropertyString("sid", id?.toString() ?: "no") }
     }
 
-    /** Changes the Anime4K preset immediately (no reload) and remembers it as the default. */
+    /** Applies a shader selection immediately (no reload) and remembers it as the default. */
+    fun selectShaders(selection: ShaderSelection) {
+        val library = library ?: return
+        library.selection = selection
+        val files = library.shaderFiles(selection)
+        activeShaderCount = files.size
+        _playerState.update { it.copy(shaderSelection = selection) }
+        post { lib -> applyShaders(lib, files) }
+    }
+
     fun setAnime4K(mode: Anime4K.Mode, level: Anime4K.Level) {
-        val ctx = appContext ?: return
-        prefs?.anime4kMode = mode
-        prefs?.anime4kLevel = level
-        _playerState.update { it.copy(anime4kMode = mode, anime4kLevel = level) }
-        post { lib ->
-            val shaders = Anime4K.shaderPathList(ctx, mode, level)
-            if (shaders.isEmpty()) {
-                lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
-            } else {
-                lib.command(arrayOf("change-list", "glsl-shaders", "set", shaders))
-            }
+        selectShaders(
+            if (level == Anime4K.Level.OFF) ShaderSelection.Off
+            else ShaderSelection.Anime4KPreset(mode, level)
+        )
+    }
+
+    private fun applyShaders(lib: MPVLib, files: List<File>) {
+        // User shaders hook into the texture pipeline; frames must be copied out of MediaCodec
+        // for that. Without shaders, zero-copy decoding is cheaper.
+        val hwdec = hwdecFor(shadersActive = files.isNotEmpty())
+        if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
+        if (files.isEmpty()) {
+            lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
+        } else {
+            lib.command(
+                arrayOf("change-list", "glsl-shaders", "set", files.joinToString(":") { it.absolutePath })
+            )
         }
+    }
+
+    /** Imports shader files into the library. Returns how many were imported and the errors. */
+    fun importShaders(uris: List<Uri>): Pair<Int, List<String>> {
+        val library = library ?: return 0 to emptyList()
+        val results = uris.map { library.importShader(it) }
+        return results.count { it.isSuccess } to results.mapNotNull { it.exceptionOrNull()?.message }
+    }
+
+    fun userShaders(): List<ShaderRef> = library?.userShaders().orEmpty()
+
+    fun builtInShaders(): List<ShaderRef> = library?.builtInShaders().orEmpty()
+
+    fun deleteUserShader(ref: ShaderRef) {
+        library?.deleteUserShader(ref)
+        reapplyIfCustom()
+    }
+
+    fun savePreset(preset: ShaderPreset) {
+        val library = library ?: return
+        library.savePreset(preset)
+        _playerState.update { it.copy(customPresets = library.presets()) }
+        selectShaders(ShaderSelection.Custom(preset.id))
+    }
+
+    fun deletePreset(id: String) {
+        val library = library ?: return
+        library.deletePreset(id)
+        _playerState.update { it.copy(customPresets = library.presets()) }
+        val current = _playerState.value.shaderSelection
+        if (current is ShaderSelection.Custom && current.presetId == id) selectShaders(ShaderSelection.Off)
+    }
+
+    private fun reapplyIfCustom() {
+        val current = _playerState.value.shaderSelection
+        if (current is ShaderSelection.Custom) selectShaders(current)
     }
 
     fun setStatsVisible(visible: Boolean) {
@@ -347,7 +414,6 @@ class VideoPlayerInstance(
     }
 
     private fun readStats(lib: MPVLib): PlaybackStats {
-        val state = _playerState.value
         val surface = lib.getPropertyString("android-surface-size")?.split("x")
         return PlaybackStats(
             videoWidth = lib.getPropertyInt("video-params/w") ?: 0,
@@ -361,7 +427,7 @@ class VideoPlayerInstance(
             decoderDrops = (lib.getPropertyInt("decoder-frame-drop-count") ?: 0).toLong(),
             outputDrops = (lib.getPropertyInt("frame-drop-count") ?: 0).toLong(),
             delayedFrames = (lib.getPropertyInt("vo-delayed-frame-count") ?: 0).toLong(),
-            activeShaders = Anime4K.shaderChain(state.anime4kMode, state.anime4kLevel).size
+            activeShaders = activeShaderCount
         )
     }
 
@@ -380,6 +446,7 @@ class VideoPlayerInstance(
             level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR -> {
                 Log.e(LOG_TAG, message)
                 logger.logError("mpv $message")
+                reportShaderError(prefix, text)
             }
 
             level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN -> Log.w(LOG_TAG, message)
@@ -453,6 +520,15 @@ class VideoPlayerInstance(
         }
     }
 
+    /** Tells the user when one of their shaders fails to compile (at most every 5 s). */
+    private fun reportShaderError(prefix: String, text: String) {
+        if (activeShaderCount == 0 || !prefix.startsWith("vo/")) return
+        val now = System.currentTimeMillis()
+        if (now - lastShaderErrorAt < 5_000) return
+        lastShaderErrorAt = now
+        globalClass.showMsg(globalClass.getString(R.string.video_shader_error, text.trim().take(160)))
+    }
+
     private fun publishPlayback() {
         val playing = fileLoaded && !paused && !pausedForCache && !eofReached
         _playerState.update {
@@ -502,8 +578,7 @@ class VideoPlayerInstance(
                 loop = state.repeatMode != Player.REPEAT_MODE_OFF,
                 audioId = state.selectedAudioId,
                 subtitleId = state.selectedSubtitleId,
-                anime4kMode = state.anime4kMode,
-                anime4kLevel = state.anime4kLevel
+                shaderSelection = state.shaderSelection.encode()
             )
         } else {
             pendingRestore
@@ -544,8 +619,7 @@ class VideoPlayerInstance(
         val loop: Boolean,
         val audioId: Int?,
         val subtitleId: Int?,
-        val anime4kMode: Anime4K.Mode,
-        val anime4kLevel: Anime4K.Level
+        val shaderSelection: String
     ) {
         fun writeTo(bundle: Bundle) {
             bundle.putLong(KEY_POSITION, positionMs)
@@ -555,8 +629,7 @@ class VideoPlayerInstance(
             bundle.putBoolean(KEY_LOOP, loop)
             audioId?.let { bundle.putInt(KEY_AID, it) }
             subtitleId?.let { bundle.putInt(KEY_SID, it) }
-            bundle.putString(KEY_A4K_MODE, anime4kMode.name)
-            bundle.putString(KEY_A4K_LEVEL, anime4kLevel.name)
+            bundle.putString(KEY_SHADERS, shaderSelection)
         }
 
         companion object {
@@ -567,8 +640,7 @@ class VideoPlayerInstance(
             private const val KEY_LOOP = "video_loop"
             private const val KEY_AID = "video_aid"
             private const val KEY_SID = "video_sid"
-            private const val KEY_A4K_MODE = "video_a4k_mode"
-            private const val KEY_A4K_LEVEL = "video_a4k_level"
+            private const val KEY_SHADERS = "video_shaders"
 
             fun readFrom(bundle: Bundle): SavedPlayback? {
                 if (!bundle.containsKey(KEY_POSITION)) return null
@@ -580,8 +652,7 @@ class VideoPlayerInstance(
                     loop = bundle.getBoolean(KEY_LOOP, false),
                     audioId = if (bundle.containsKey(KEY_AID)) bundle.getInt(KEY_AID) else null,
                     subtitleId = if (bundle.containsKey(KEY_SID)) bundle.getInt(KEY_SID) else null,
-                    anime4kMode = enumValueOrDefault(bundle.getString(KEY_A4K_MODE), Anime4K.Mode.A),
-                    anime4kLevel = enumValueOrDefault(bundle.getString(KEY_A4K_LEVEL), Anime4K.Level.OFF)
+                    shaderSelection = bundle.getString(KEY_SHADERS) ?: ShaderSelection.Off.encode()
                 )
             }
         }
@@ -591,6 +662,22 @@ class VideoPlayerInstance(
         /** libplacebo renderer; falls back to the classic OpenGL renderer if it can't start. */
         private const val VIDEO_OUTPUT = "gpu-next,gpu"
         private const val LOG_TAG = "mpv"
+
+        /**
+         * - shaders active: mediacodec-copy (frames in normal textures, shaders apply)
+         * - otherwise: zero-copy mediacodec, copy as fallback
+         * Emulators' zero-copy path stalls on every frame, so they always copy.
+         */
+        internal fun hwdecFor(shadersActive: Boolean): String = when {
+            shadersActive || isEmulator -> "mediacodec-copy"
+            else -> "mediacodec,mediacodec-copy"
+        }
+
+        private fun displayRefreshRate(context: Context): Float? =
+            context.getSystemService(DisplayManager::class.java)
+                ?.getDisplay(Display.DEFAULT_DISPLAY)
+                ?.refreshRate
+                ?.takeIf { it > 1f }
 
         private val isEmulator: Boolean
             get() = Build.HARDWARE.contains("goldfish") || Build.HARDWARE.contains("ranchu") ||

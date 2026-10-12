@@ -491,4 +491,22 @@
     <string name="video_tracks_unnamed">Track %1$d</string>
     <string name="video_tracks_default">default</string>
     <string name="video_tracks_external">external file</string>
+    <string name="video_shader_error">Shader error: %1$s</string>
+    <string name="video_shaders_title">Shaders and upscaling</string>
+    <string name="video_shaders_off">No shaders</string>
+    <string name="video_shaders_custom">My presets</string>
+    <string name="video_shaders_custom_empty">Import your own .glsl shaders (mpv format) and combine them into presets.</string>
+    <string name="video_shaders_edit">Edit preset</string>
+    <string name="video_shaders_new_preset">New preset</string>
+    <string name="video_shaders_import">Import .glsl</string>
+    <string name="video_shaders_imported">Imported shaders: %1$d</string>
+    <string name="video_shaders_delete_preset">Delete preset?</string>
+    <string name="video_shaders_preset_name">Preset name</string>
+    <string name="video_shaders_chain">Shaders in this preset</string>
+    <string name="video_shaders_chain_hint">Applied top to bottom, like glsl-shaders in mpv.</string>
+    <string name="video_shaders_chain_empty">Add shaders from the lists below.</string>
+    <string name="video_shaders_my_files">My shader files</string>
+    <string name="video_shaders_my_files_empty">No imported shaders yet.</string>
+    <string name="video_shaders_builtin">Bundled Anime4K shaders</string>
+    <string name="video_shaders_add">Add to preset</string>
 </resources>

@@ -68,6 +68,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.app.Activity
+import kotlinx.coroutines.delay
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderSelection
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -88,6 +96,8 @@ import kotlin.math.abs
 
 private enum class PlayerSheet { NONE, UPSCALING, TRACKS }
 
+private const val CONTROLS_AUTO_HIDE_MS = 3_500L
+
 @Composable
 fun VideoPlayerScreen(
     videoUri: Uri,
@@ -97,6 +107,31 @@ fun VideoPlayerScreen(
     val context = LocalContext.current
     val playerState by videoPlayerInstance.playerState.collectAsState()
     var sheet by remember { mutableStateOf(PlayerSheet.NONE) }
+    // Bumped on every interaction with the controls to restart the auto-hide timer.
+    var interaction by remember { mutableIntStateOf(0) }
+    val view = LocalView.current
+
+    // Immersive mode: system bars follow the controls; a swipe from the edge shows them
+    // temporarily without bringing the controls back.
+    LaunchedEffect(playerState.showControls) {
+        val window = (view.context as? Activity)?.window ?: return@LaunchedEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (playerState.showControls) {
+                show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    // Hide the controls after a few seconds of playback without interaction.
+    LaunchedEffect(playerState.showControls, playerState.isPlaying, sheet, interaction) {
+        if (playerState.showControls && playerState.isPlaying && sheet == PlayerSheet.NONE) {
+            delay(CONTROLS_AUTO_HIDE_MS)
+            videoPlayerInstance.setControlsVisible(false)
+        }
+    }
 
     // Idempotent: a recreated composition reuses the running player.
     // The player is released by the activity when the viewer is finished,
@@ -155,19 +190,31 @@ fun VideoPlayerScreen(
         ) {
             VideoControls(
                 state = playerState,
-                onPlayPause = { videoPlayerInstance.playPause() },
+                onPlayPause = {
+                    interaction++
+                    videoPlayerInstance.playPause()
+                },
                 onSeekForward = {
+                    interaction++
                     val newPos = (playerState.currentPosition + 10_000)
                         .coerceAtMost(playerState.duration)
                     videoPlayerInstance.seekTo(newPos)
                 },
                 onSeekBackward = {
+                    interaction++
                     val newPos = (playerState.currentPosition - 10_000).coerceAtLeast(0)
                     videoPlayerInstance.seekTo(newPos)
                 },
-                onSeek = { position -> videoPlayerInstance.seekTo(position) },
+                onSeek = { position ->
+                    interaction++
+                    videoPlayerInstance.seekTo(position)
+                },
+                onSeekDrag = { interaction++ },
                 onBackPressed = onBackPressed,
-                onToggleMute = { videoPlayerInstance.toggleMute() },
+                onToggleMute = {
+                    interaction++
+                    videoPlayerInstance.toggleMute()
+                },
                 onOpenUpscaling = { sheet = PlayerSheet.UPSCALING },
                 onOpenTracks = { sheet = PlayerSheet.TRACKS }
             )
@@ -203,9 +250,9 @@ fun VideoPlayerScreen(
     }
 
     when (sheet) {
-        PlayerSheet.UPSCALING -> UpscalingSheet(
+        PlayerSheet.UPSCALING -> ShaderSheet(
             state = playerState,
-            onSelect = { mode, level -> videoPlayerInstance.setAnime4K(mode, level) },
+            instance = videoPlayerInstance,
             onStatsChange = { videoPlayerInstance.setStatsVisible(it) },
             onDismiss = { sheet = PlayerSheet.NONE }
         )
@@ -229,6 +276,7 @@ fun VideoControls(
     onSeekForward: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeek: (Long) -> Unit,
+    onSeekDrag: () -> Unit,
     onBackPressed: () -> Unit,
     onOpenUpscaling: () -> Unit,
     onOpenTracks: () -> Unit
@@ -273,6 +321,7 @@ fun VideoControls(
             currentPosition = state.currentPosition,
             duration = state.duration,
             onSeek = onSeek,
+            onSeekDrag = onSeekDrag,
             modifier = Modifier.align(Alignment.BottomStart)
         )
     }
@@ -314,10 +363,10 @@ fun TopBar(
         )
 
         IconButton(onClick = onOpenUpscaling) {
-            val active = playerState.anime4kLevel != Anime4K.Level.OFF
+            val active = playerState.shaderSelection != ShaderSelection.Off
             Icon(
                 imageVector = if (active) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome,
-                contentDescription = stringResource(R.string.anime4k_title),
+                contentDescription = stringResource(R.string.video_shaders_title),
                 tint = if (active) colorScheme.primary else Color.White
             )
         }
@@ -406,6 +455,7 @@ fun BottomControls(
     currentPosition: Long,
     duration: Long,
     onSeek: (Long) -> Unit,
+    onSeekDrag: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -437,6 +487,7 @@ fun BottomControls(
         Slider(
             value = progress.coerceIn(0f, 1f),
             onValueChange = { value ->
+                onSeekDrag()
                 isDragging = true
                 pendingSeekPosition = (value * duration).toLong()
             },
@@ -471,113 +522,6 @@ fun BottomControls(
     }
 }
 
-// --- Upscaling ---------------------------------------------------------------------------
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun UpscalingSheet(
-    state: VideoPlayerState,
-    onSelect: (Anime4K.Mode, Anime4K.Level) -> Unit,
-    onStatsChange: (Boolean) -> Unit,
-    onDismiss: () -> Unit
-) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
-        ) {
-            Text(
-                text = stringResource(R.string.anime4k_title),
-                style = MaterialTheme.typography.titleLarge
-            )
-            Spacer(Modifier.size(16.dp))
-
-            val levels = Anime4K.Level.entries
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                levels.forEachIndexed { index, level ->
-                    SegmentedButton(
-                        selected = state.anime4kLevel == level,
-                        onClick = { onSelect(state.anime4kMode, level) },
-                        shape = SegmentedButtonDefaults.itemShape(index, levels.size),
-                        label = { Text(stringResource(level.labelRes()), maxLines = 1) }
-                    )
-                }
-            }
-            Spacer(Modifier.size(8.dp))
-            Text(
-                text = stringResource(state.anime4kLevel.descriptionRes()),
-                style = MaterialTheme.typography.bodySmall,
-                color = colorScheme.onSurfaceVariant
-            )
-
-            Spacer(Modifier.size(20.dp))
-            Text(
-                text = stringResource(R.string.anime4k_mode_title),
-                style = MaterialTheme.typography.titleSmall
-            )
-            Spacer(Modifier.size(4.dp))
-            Anime4K.Mode.entries.forEach { mode ->
-                OptionRow(
-                    selected = state.anime4kMode == mode,
-                    enabled = state.anime4kLevel != Anime4K.Level.OFF,
-                    title = stringResource(mode.labelRes()),
-                    subtitle = stringResource(mode.descriptionRes()),
-                    onClick = { onSelect(mode, state.anime4kLevel) }
-                )
-            }
-
-            Spacer(Modifier.size(12.dp))
-            Text(
-                text = stringResource(R.string.anime4k_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = colorScheme.onSurfaceVariant
-            )
-
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(R.string.video_stats), style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        stringResource(R.string.video_stats_desc),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = state.showStats, onCheckedChange = onStatsChange)
-            }
-        }
-    }
-}
-
-private fun Anime4K.Level.labelRes() = when (this) {
-    Anime4K.Level.OFF -> R.string.anime4k_level_off
-    Anime4K.Level.FAST -> R.string.anime4k_level_fast
-    Anime4K.Level.BALANCED -> R.string.anime4k_level_balanced
-    Anime4K.Level.QUALITY -> R.string.anime4k_level_quality
-}
-
-private fun Anime4K.Level.descriptionRes() = when (this) {
-    Anime4K.Level.OFF -> R.string.anime4k_level_off_desc
-    Anime4K.Level.FAST -> R.string.anime4k_level_fast_desc
-    Anime4K.Level.BALANCED -> R.string.anime4k_level_balanced_desc
-    Anime4K.Level.QUALITY -> R.string.anime4k_level_quality_desc
-}
-
-private fun Anime4K.Mode.labelRes() = when (this) {
-    Anime4K.Mode.A -> R.string.anime4k_mode_a
-    Anime4K.Mode.B -> R.string.anime4k_mode_b
-    Anime4K.Mode.C -> R.string.anime4k_mode_c
-}
-
-private fun Anime4K.Mode.descriptionRes() = when (this) {
-    Anime4K.Mode.A -> R.string.anime4k_mode_a_desc
-    Anime4K.Mode.B -> R.string.anime4k_mode_b_desc
-    Anime4K.Mode.C -> R.string.anime4k_mode_c_desc
-}
-
 // --- Tracks ------------------------------------------------------------------------------
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -606,7 +550,7 @@ private fun TracksSheet(
                 )
             }
             state.audioTracks.forEach { track ->
-                OptionRow(
+                SelectableRow(
                     selected = state.selectedAudioId == track.id,
                     title = trackTitle(track),
                     subtitle = trackDetails(track),
@@ -617,14 +561,14 @@ private fun TracksSheet(
             HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
             Text(stringResource(R.string.video_tracks_subtitles), style = MaterialTheme.typography.titleMedium)
-            OptionRow(
+            SelectableRow(
                 selected = state.selectedSubtitleId == null,
                 title = stringResource(R.string.video_tracks_off),
                 subtitle = null,
                 onClick = { onSubtitle(null) }
             )
             state.subtitleTracks.forEach { track ->
-                OptionRow(
+                SelectableRow(
                     selected = state.selectedSubtitleId == track.id,
                     title = trackTitle(track),
                     subtitle = trackDetails(track),
@@ -657,45 +601,6 @@ private fun trackDetails(track: MediaTrack): String? {
     return parts.joinToString(" · ").ifEmpty { null }
 }
 
-@Composable
-private fun OptionRow(
-    selected: Boolean,
-    title: String,
-    subtitle: String?,
-    onClick: () -> Unit,
-    enabled: Boolean = true
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .selectable(
-                selected = selected,
-                enabled = enabled,
-                role = Role.RadioButton,
-                onClick = onClick
-            )
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        RadioButton(selected = selected, onClick = null, enabled = enabled)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) colorScheme.onSurface else colorScheme.onSurface.copy(alpha = 0.38f)
-            )
-            subtitle?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.38f)
-                )
-            }
-        }
-    }
-}
-
 // --- Stats -------------------------------------------------------------------------------
 
 @Composable
@@ -714,10 +619,7 @@ private fun StatsOverlay(stats: PlaybackStats?, state: VideoPlayerState, modifie
                         " / display ${stats.displayFps?.let { "%.0f".format(Locale.ROOT, it) } ?: "?"}"
             )
             appendLine("Drops  decoder ${stats.decoderDrops} · output ${stats.outputDrops} · late ${stats.delayedFrames}")
-            append(
-                "A4K    " + if (state.anime4kLevel == Anime4K.Level.OFF) "off"
-                else "${state.anime4kMode} · ${state.anime4kLevel.name.lowercase()} · ${stats.activeShaders} shaders"
-            )
+            append("Shader " + shaderLabel(state, stats.activeShaders))
         }
         Text(
             text = text,
@@ -729,3 +631,13 @@ private fun StatsOverlay(stats: PlaybackStats?, state: VideoPlayerState, modifie
         )
     }
 }
+
+private fun shaderLabel(state: VideoPlayerState, count: Int): String =
+    when (val selection = state.shaderSelection) {
+        ShaderSelection.Off -> "off"
+        is ShaderSelection.Anime4KPreset ->
+            "Anime4K ${selection.mode} · ${selection.level.name.lowercase()} · $count files"
+        is ShaderSelection.Custom ->
+            (state.customPresets.firstOrNull { it.id == selection.presetId }?.name ?: "custom") +
+                    " · $count files"
+    }

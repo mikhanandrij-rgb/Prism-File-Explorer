@@ -1,6 +1,9 @@
 package com.raival.compose.file.explorer.screen.viewer.video
 
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.compose.setContent
 import com.raival.compose.file.explorer.screen.viewer.ViewerActivity
 import com.raival.compose.file.explorer.screen.viewer.ViewerInstance
@@ -14,6 +17,17 @@ import com.raival.compose.file.explorer.theme.FileExplorerTheme
  * [ViewerActivity].
  */
 class VideoPlayerActivity : ViewerActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Let the video use the area around the camera cutout in landscape.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes = window.attributes.apply {
+                layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+        }
+    }
+
     override fun onCreateNewInstance(
         uri: Uri,
         uid: String

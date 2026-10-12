@@ -491,4 +491,22 @@
     <string name="video_tracks_unnamed">Дорожка %1$d</string>
     <string name="video_tracks_default">по умолчанию</string>
     <string name="video_tracks_external">внешний файл</string>
+    <string name="video_shader_error">Ошибка шейдера: %1$s</string>
+    <string name="video_shaders_title">Шейдеры и апскейлинг</string>
+    <string name="video_shaders_off">Без шейдеров</string>
+    <string name="video_shaders_custom">Мои пресеты</string>
+    <string name="video_shaders_custom_empty">Импортируйте свои шейдеры .glsl (формат mpv) и соберите из них пресеты.</string>
+    <string name="video_shaders_edit">Изменить пресет</string>
+    <string name="video_shaders_new_preset">Новый пресет</string>
+    <string name="video_shaders_import">Импорт .glsl</string>
+    <string name="video_shaders_imported">Импортировано шейдеров: %1$d</string>
+    <string name="video_shaders_delete_preset">Удалить пресет?</string>
+    <string name="video_shaders_preset_name">Название пресета</string>
+    <string name="video_shaders_chain">Шейдеры в пресете</string>
+    <string name="video_shaders_chain_hint">Применяются сверху вниз, как glsl-shaders в mpv.</string>
+    <string name="video_shaders_chain_empty">Добавьте шейдеры из списков ниже.</string>
+    <string name="video_shaders_my_files">Мои файлы шейдеров</string>
+    <string name="video_shaders_my_files_empty">Пока нет импортированных шейдеров.</string>
+    <string name="video_shaders_builtin">Встроенные шейдеры Anime4K</string>
+    <string name="video_shaders_add">Добавить в пресет</string>
 </resources>
