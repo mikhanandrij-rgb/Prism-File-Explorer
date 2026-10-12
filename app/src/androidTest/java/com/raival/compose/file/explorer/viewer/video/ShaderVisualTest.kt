@@ -60,6 +60,8 @@ class ShaderVisualTest {
     @Before
     fun setUp() {
         grantStorageAccess()
+        // Android's one-time "Viewing full screen" hint would cover the video in screenshots.
+        shell("settings put secure immersive_mode_confirmations confirmed")
         val file = File(context.cacheDir, "upscale_test.mp4")
         instrumentation.context.assets.open("upscale_test.mp4").use { input ->
             file.outputStream().use { input.copyTo(it) }
