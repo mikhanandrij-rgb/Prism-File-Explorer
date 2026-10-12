@@ -89,6 +89,7 @@ class VideoPlayerInstance(
     @Volatile private var lastShaderErrorAt = 0L
     /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
     @Volatile private var hwdecOverride: String? = null
+    @Volatile private var verboseVideoLog = false
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
     private var surfaceHolder: SurfaceHolder? = null
@@ -118,6 +119,7 @@ class VideoPlayerInstance(
         appContext = ctx
         if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_INFO
+            verboseVideoLog = true
             hwdecOverride = ctx.getSharedPreferences("video_player", Context.MODE_PRIVATE)
                 .getString(DEBUG_HWDEC_KEY, null)
         }
@@ -459,7 +461,10 @@ class VideoPlayerInstance(
     // --- mpv events (event thread) ---------------------------------------------------------
 
     override fun logMessage(prefix: String, level: Int, text: String) {
-        if (level > logLevel) return
+        // Debug builds also forward the renderer's verbose messages (formats, GPU caps).
+        val verboseRenderer = verboseVideoLog && level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_V &&
+                (prefix.contains("libplacebo") || prefix.startsWith("vo/"))
+        if (level > logLevel && !verboseRenderer) return
         val message = "[$prefix] ${text.trimEnd()}"
         when {
             level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR -> {

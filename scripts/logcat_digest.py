@@ -3,7 +3,7 @@
 import re
 import sys
 
-KEEP_MPV = re.compile(r"screenshot|hwdec|Using|Could not|reconfig|Opening|vo/|error|fail|timed out|Selected", re.I)
+KEEP_MPV = re.compile(r"screenshot|hwdec|Using|Could not|reconfig|Opening|error|fail|timed out|Selected|format|float|GL_|OpenGL|GLSL|version|Restrict|hook|fbo|precision", re.I)
 out = []
 for line in open(sys.argv[1], errors="replace"):
     if "\tat " in line or "THREAD_STATE" in line:
@@ -18,4 +18,4 @@ for line in open(sys.argv[1], errors="replace"):
         out.append(line.rstrip())
 # collapse consecutive duplicates
 dedup = [l for i, l in enumerate(out) if i == 0 or l[33:] != out[i - 1][33:]]
-print("\n".join(dedup[:400]))
+print("\n".join(dedup[:600]))
