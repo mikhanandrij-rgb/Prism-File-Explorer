@@ -92,7 +92,7 @@ object Anime4K {
      */
     @Synchronized
     fun installShaders(context: Context): File {
-        val dir = File(context.filesDir, "mpv/shaders/anime4k-v$SHADERS_VERSION")
+        val dir = File(context.filesDir, "mpv/shaders/anime4k-v$SHADERS_VERSION-s${ShaderSanitizer.VERSION}")
         val marker = File(dir, ".complete")
         if (marker.exists()) return dir
 
@@ -101,9 +101,9 @@ object Anime4K {
         }
         dir.mkdirs()
         for (name in allShaders) {
-            context.assets.open("$ASSET_DIR/$name").use { input ->
-                File(dir, name).outputStream().use { input.copyTo(it) }
-            }
+            // Rewritten so mobile GLSL ES compilers accept them (see ShaderSanitizer).
+            val source = context.assets.open("$ASSET_DIR/$name").use { it.readBytes().toString(Charsets.UTF_8) }
+            File(dir, name).writeText(ShaderSanitizer.sanitize(source))
         }
         marker.createNewFile()
         return dir

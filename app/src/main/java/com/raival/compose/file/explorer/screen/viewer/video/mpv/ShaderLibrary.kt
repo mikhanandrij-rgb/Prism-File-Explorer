@@ -119,13 +119,17 @@ class ShaderLibrary(context: Context) {
         if (!ref.isBuiltIn) File(userDir, ref.fileName).delete()
     }
 
+    /** The file handed to mpv: bundled shaders are installed sanitized; user shaders get a sanitized copy. */
     fun fileOf(ref: ShaderRef): File? {
-        val file = if (ref.isBuiltIn) {
-            File(Anime4K.installShaders(appContext), ref.fileName)
-        } else {
-            File(userDir, ref.fileName)
+        if (ref.isBuiltIn) return File(Anime4K.installShaders(appContext), ref.fileName).takeIf { it.isFile }
+        val original = File(userDir, ref.fileName).takeIf { it.isFile } ?: return null
+        val sanitizedDir = File(appContext.filesDir, "mpv/shaders/user-gles-s${ShaderSanitizer.VERSION}").apply { mkdirs() }
+        val sanitized = File(sanitizedDir, ref.fileName)
+        if (!sanitized.isFile || sanitized.lastModified() < original.lastModified()) {
+            runCatching { sanitized.writeText(ShaderSanitizer.sanitize(original.readText())) }
+                .onFailure { return original }
         }
-        return file.takeIf { it.isFile }
+        return sanitized
     }
 
     // --- Presets ----------------------------------------------------------------------------
