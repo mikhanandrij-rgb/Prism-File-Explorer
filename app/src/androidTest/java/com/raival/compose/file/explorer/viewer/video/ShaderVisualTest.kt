@@ -80,6 +80,10 @@ class ShaderVisualTest {
 
     @Test
     fun anime4kVisiblyChangesTheRenderedFrame() {
+        // Full mpv debug log, including every shader source libplacebo generates.
+        context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit()
+            .putString(VideoPlayerInstance.DEBUG_LOG_FILE_KEY, File(outDir, "mpv-debug.log").absolutePath)
+            .commit()
         val intent = Intent(context, VideoPlayerActivity::class.java)
             .setAction(Intent.ACTION_VIEW)
             .setDataAndType(videoUri, "video/mp4")

@@ -272,6 +272,13 @@ fun VideoPlayerScreen(
         }
     }
 
+    playerState.shaderErrorReport?.let { report ->
+        ShaderErrorDialog(
+            report = report,
+            onDismiss = { videoPlayerInstance.dismissShaderError() }
+        )
+    }
+
     when (sheet) {
         PlayerSheet.UPSCALING -> ShaderSheet(
             state = playerState,
@@ -704,4 +711,45 @@ private fun CompareButton(onCompare: (Boolean) -> Unit) {
             tint = Color.White
         )
     }
+}
+
+@Composable
+private fun ShaderErrorDialog(
+    report: com.raival.compose.file.explorer.screen.viewer.video.model.ShaderErrorReport,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.video_shader_error_title)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(stringResource(R.string.video_shader_error_desc))
+                Spacer(Modifier.size(12.dp))
+                Text(
+                    text = report.firstError,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp
+                )
+            }
+        },
+        confirmButton = {
+            androidx.compose.material3.TextButton(onClick = {
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    context, context.packageName + ".provider", report.file
+                )
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    .putExtra(android.content.Intent.EXTRA_SUBJECT, "Facet Files shader error report")
+                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                context.startActivity(android.content.Intent.createChooser(send, null))
+            }) { Text(stringResource(R.string.video_shader_error_share)) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.close))
+            }
+        }
+    )
 }

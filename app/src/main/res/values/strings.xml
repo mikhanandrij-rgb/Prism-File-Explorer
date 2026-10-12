@@ -512,4 +512,7 @@
     <string name="video_compare_original">Original (no shaders)</string>
     <string name="video_compare_hold">Hold to compare with the original</string>
     <string name="video_gpu_no_float">This GPU cannot render to floating-point textures. Neural-network shaders such as Anime4K will look wrong on it.</string>
+    <string name="video_shader_error_title">Shader not supported by this GPU</string>
+    <string name="video_shader_error_desc">The GPU driver rejected a shader, so it is not applied. Share the report so the problem can be fixed.</string>
+    <string name="video_shader_error_share">Share report</string>
 </resources>

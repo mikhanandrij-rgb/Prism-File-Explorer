@@ -29,8 +29,12 @@ data class VideoPlayerState(
     val gpuSupportsFloat: Boolean = true,
     val showStats: Boolean = false,
     val stats: PlaybackStats? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    /** Set when the GPU driver rejected a shader; holds a shareable report. */
+    val shaderErrorReport: ShaderErrorReport? = null
 )
+
+data class ShaderErrorReport(val file: java.io.File, val firstError: String)
 
 data class MediaTrack(
     val id: Int,

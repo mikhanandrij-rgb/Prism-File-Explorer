@@ -17,6 +17,7 @@ import com.raival.compose.file.explorer.common.name
 import com.raival.compose.file.explorer.screen.viewer.ViewerInstance
 import com.raival.compose.file.explorer.screen.viewer.video.model.MediaTrack
 import com.raival.compose.file.explorer.screen.viewer.video.model.PlaybackStats
+import com.raival.compose.file.explorer.screen.viewer.video.model.ShaderErrorReport
 import com.raival.compose.file.explorer.screen.viewer.video.model.VideoPlayerState
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.GpuCaps
@@ -87,12 +88,13 @@ class VideoPlayerInstance(
     private var appContext: Context? = null
     private var library: ShaderLibrary? = null
     @Volatile private var activeShaderCount = 0
-    @Volatile private var lastShaderErrorAt = 0L
     /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
     @Volatile private var hwdecOverride: String? = null
     @Volatile private var verboseVideoLog = false
     /** Debug builds only: use the real-device decoder policy on an emulator (tests). */
     @Volatile private var devicePolicyForTests = false
+    /** Debug builds only: full mpv debug log (includes generated shader sources). */
+    @Volatile private var debugLogFile: String? = null
     private var initStarted = false
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
@@ -128,6 +130,7 @@ class VideoPlayerInstance(
             val debugPrefs = ctx.getSharedPreferences("video_player", Context.MODE_PRIVATE)
             hwdecOverride = debugPrefs.getString(DEBUG_HWDEC_KEY, null)
             devicePolicyForTests = debugPrefs.getBoolean(DEBUG_DEVICE_POLICY_KEY, false)
+            debugLogFile = debugPrefs.getString(DEBUG_LOG_FILE_KEY, null)
         }
         val library = ShaderLibrary(ctx).also { library = it }
         val gpu = withContext(Dispatchers.Default) { GpuCaps.get(ctx) }
@@ -184,6 +187,10 @@ class VideoPlayerInstance(
 
         with(lib) {
             setOptionString("config", "no")
+            debugLogFile?.let {
+                setOptionString("log-file", it)
+                setOptionString("msg-level", "all=debug")
+            }
             setOptionString("gpu-shader-cache-dir", cacheDir.path)
             setOptionString("icc-cache-dir", cacheDir.path)
 
@@ -553,8 +560,9 @@ class VideoPlayerInstance(
         when {
             level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_ERROR -> {
                 Log.e(LOG_TAG, message)
-                logger.logError("mpv $message")
-                reportShaderError(prefix, text)
+                // Shader source dumps ("[ 93] ...") go to the report, not line by line to the app log.
+                if (!Regex("""^\[\s*\d+\]""").containsMatchIn(text)) logger.logError("mpv $message")
+                collectShaderError(prefix, text)
             }
 
             level <= MPVLib.MpvLogLevel.MPV_LOG_LEVEL_WARN -> Log.w(LOG_TAG, message)
@@ -628,17 +636,53 @@ class VideoPlayerInstance(
         }
     }
 
-    /** Tells the user when one of their shaders fails to compile (at most every 5 s). */
-    private fun reportShaderError(prefix: String, text: String) {
-        // Only shader compile/hook failures from the renderer; decoder hiccups are not the user's
-        // shader's fault (e.g. "acquireLatestImage failed" while switching decoders).
-        val shaderProblem = prefix.contains("libplacebo") &&
-                Regex("shader|hook|compile|glsl", RegexOption.IGNORE_CASE).containsMatchIn(text)
-        if (activeShaderCount == 0 || !shaderProblem) return
-        val now = System.currentTimeMillis()
-        if (now - lastShaderErrorAt < 5_000) return
-        lastShaderErrorAt = now
-        globalClass.showMsg(globalClass.getString(R.string.video_shader_error, text.trim().take(160)))
+    /** Error lines of the renderer, kept to build a shader error report. */
+    private val shaderErrorBuffer = StringBuilder()
+    private var shaderReportJob: Job? = null
+
+    /**
+     * When the GPU driver rejects a shader, libplacebo logs the compile log and then the full
+     * generated source at error level. Collect them into one report the user can share.
+     */
+    private fun collectShaderError(prefix: String, text: String) {
+        if (!prefix.contains("libplacebo") && !prefix.startsWith("vo/")) return
+        synchronized(shaderErrorBuffer) {
+            if (shaderErrorBuffer.length > 512 * 1024) return
+            if (text.contains("shader compile log") || text.contains("program link log")) {
+                if (shaderErrorBuffer.isNotEmpty()) shaderErrorBuffer.append("\n----\n")
+            }
+            shaderErrorBuffer.append('[').append(prefix).append("] ").append(text.trimEnd()).append('\n')
+        }
+        shaderReportJob?.cancel()
+        shaderReportJob = scope.launch {
+            delay(800) // the source is logged right after the compile log
+            publishShaderReport()
+        }
+    }
+
+    private fun publishShaderReport() {
+        val ctx = appContext ?: return
+        val text = synchronized(shaderErrorBuffer) { shaderErrorBuffer.toString() }
+        if (!text.contains("shader compile log") && !text.contains("program link log")) return
+        val gpu = GpuCaps.get(ctx)
+        val selection = _playerState.value.shaderSelection.encode()
+        val report = buildString {
+            appendLine("Facet Files shader error report")
+            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
+            appendLine("gpu: ${gpu.renderer} | ${gpu.glVersion} | float targets: ${gpu.floatRenderTargets}")
+            appendLine("shaders: $selection")
+            appendLine("hwdec: ${mpv?.getPropertyString("hwdec-current")}")
+            appendLine()
+            append(text)
+        }
+        val file = File(ctx.cacheDir, "shader-error-report.txt").apply { writeText(report) }
+        val firstError = Regex("""ERROR:[^\n]*""").find(text)?.value
+            ?: text.lineSequence().firstOrNull { it.contains("compile log") }.orEmpty()
+        _playerState.update { it.copy(shaderErrorReport = ShaderErrorReport(file, firstError.take(300))) }
+    }
+
+    fun dismissShaderError() {
+        _playerState.update { it.copy(shaderErrorReport = null) }
     }
 
     private fun publishPlayback() {
@@ -779,6 +823,7 @@ class VideoPlayerInstance(
         /** SharedPreferences key ("video_player") honoured in debuggable builds only. */
         const val DEBUG_HWDEC_KEY = "debug_hwdec_override"
         const val DEBUG_DEVICE_POLICY_KEY = "debug_device_hwdec_policy"
+        const val DEBUG_LOG_FILE_KEY = "debug_mpv_log_file"
 
         /**
          * - shaders active: mediacodec-copy (frames in normal textures, shaders apply)

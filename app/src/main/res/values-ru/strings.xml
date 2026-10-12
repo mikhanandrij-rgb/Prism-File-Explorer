@@ -512,4 +512,7 @@
     <string name="video_compare_original">Оригинал (без шейдеров)</string>
     <string name="video_compare_hold">Удерживайте, чтобы сравнить с оригиналом</string>
     <string name="video_gpu_no_float">GPU этого устройства не умеет рендерить в float-текстуры. Нейросетевые шейдеры вроде Anime4K будут выглядеть неправильно.</string>
+    <string name="video_shader_error_title">GPU не принял шейдер</string>
+    <string name="video_shader_error_desc">Драйвер видеокарты отклонил шейдер, поэтому он не применяется. Отправьте отчёт, чтобы проблему можно было исправить.</string>
+    <string name="video_shader_error_share">Поделиться отчётом</string>
 </resources>
