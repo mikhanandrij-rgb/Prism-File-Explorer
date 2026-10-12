@@ -168,8 +168,10 @@ class ShaderVisualTest {
      */
     @Test
     fun enablingAnime4kFromZeroCopyDecodingSwitchesDecoderFirst() {
+        outDir.mkdirs()
         context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
             .putBoolean(VideoPlayerInstance.DEBUG_DEVICE_POLICY_KEY, true)
+            .putString(VideoPlayerInstance.DEBUG_LOG_FILE_KEY, File(outDir, "mpv-debug-zerocopy.log").absolutePath)
             .commit()
         val intent = Intent(context, VideoPlayerActivity::class.java)
             .setAction(Intent.ACTION_VIEW)

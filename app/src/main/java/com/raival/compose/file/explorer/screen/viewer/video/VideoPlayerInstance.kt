@@ -431,13 +431,13 @@ class VideoPlayerInstance(
 
     /**
      * Waits (bounded) until neither the decoder nor the frames in the video chain are zero-copy
-     * MediaCodec surfaces. A paused player needs a re-decode for that.
+     * MediaCodec surfaces. mpv re-decodes the current frame itself after an hwdec change (it
+     * queues an exact seek to the last frame), so this works while paused too.
      */
     private fun awaitCopiedFrames(lib: MPVLib) {
         fun zeroCopy() = lib.getPropertyString("hwdec-current") == "mediacodec" ||
                 lib.getPropertyString("video-params/pixelformat") == "mediacodec"
         if (!zeroCopy()) return
-        redrawIfPaused(lib)
         val deadline = System.currentTimeMillis() + 3_000
         while (System.currentTimeMillis() < deadline) {
             if (!zeroCopy()) return
