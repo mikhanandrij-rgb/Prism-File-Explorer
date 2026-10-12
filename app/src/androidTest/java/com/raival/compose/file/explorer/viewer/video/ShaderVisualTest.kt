@@ -200,9 +200,14 @@ class ShaderVisualTest {
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
             waitUntil("shaders cleared") { mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
             onMain { instance.playPause() }
-            Thread.sleep(2_000)
+            // Going back to zero-copy re-creates the decoder; give the emulator time.
+            val deadline = System.currentTimeMillis() + 10_000
+            var playing = false
+            while (!playing && System.currentTimeMillis() < deadline) {
+                Thread.sleep(200)
+                playing = onMain { instance.playerState.value.isPlaying }
+            }
             val decoderOff = mpv.getPropertyString("hwdec-current")
-            val playing = onMain { instance.playerState.value.isPlaying }
             line("zero-copy flow: decoder after turning shaders off=$decoderOff playing=$playing")
             File(outDir, "results-zerocopy.txt").writeText(report.toString())
 
