@@ -71,6 +71,11 @@ class UpscalerBenchmarkTest {
             add(Candidate("a4k_${mode.name}_${level.name}".lowercase(), ShaderSelection.Anime4KPreset(mode, level)))
         }
         BundledShaders.presets.forEach { add(Candidate(it.id, ShaderSelection.Bundled(it.id))) }
+    }.let { all ->
+        // -e bench_only id1,id2 limits the run (CI keeps it to ~10 minutes).
+        val only = InstrumentationRegistry.getArguments().getString("bench_only")
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+        if (only.isNullOrEmpty()) all else all.filter { it.id in only }
     }
 
     @Before
@@ -125,7 +130,7 @@ class UpscalerBenchmarkTest {
             refreshFrame(mpv)
             // Wait until the rendered frame ran this option's passes (or none for off).
             var passes = Triple(0, 0, 0.0)
-            val deadline = System.currentTimeMillis() + 90_000
+            val deadline = System.currentTimeMillis() + 45_000
             while (System.currentTimeMillis() < deadline) {
                 passes = passes(mpv, descs)
                 if (onMain { instance.playerState.value.shaderErrorReport } != null) break
