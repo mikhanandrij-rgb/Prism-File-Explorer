@@ -6,6 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,7 +56,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.raival.compose.file.explorer.App.Companion.globalClass
 import com.raival.compose.file.explorer.R
@@ -508,6 +513,7 @@ internal fun Anime4K.Mode.descriptionRes() = when (this) {
 }
 
 /** One ranked upscaler: name, recommended badge, description and quality / load meters. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UpscalerRow(entry: UpscalerRanking.Entry, selected: Boolean, onClick: () -> Unit) {
     Row(
@@ -520,21 +526,20 @@ private fun UpscalerRow(entry: UpscalerRanking.Entry, selected: Boolean, onClick
         RadioButton(selected = selected, onClick = null)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = entry.title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
+            // The badge moves under the name when both don't fit; the name is never cut.
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+                itemVerticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = entry.title, style = MaterialTheme.typography.bodyLarge)
                 if (entry.recommended) {
-                    Spacer(Modifier.width(8.dp))
                     Surface(color = colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
                         Text(
                             text = stringResource(R.string.upscalers_recommended),
                             style = MaterialTheme.typography.labelSmall,
                             color = colorScheme.onPrimaryContainer,
+                            maxLines = 1,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -547,7 +552,10 @@ private fun UpscalerRow(entry: UpscalerRanking.Entry, selected: Boolean, onClick
                     color = colorScheme.onSurfaceVariant
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 2.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(top = 2.dp)
+            ) {
                 Meter(stringResource(R.string.upscalers_quality), entry.quality, colorScheme.primary)
                 Meter(stringResource(R.string.upscalers_load), entry.load, colorScheme.tertiary)
             }
@@ -557,18 +565,15 @@ private fun UpscalerRow(entry: UpscalerRanking.Entry, selected: Boolean, onClick
 
 @Composable
 private fun Meter(label: String, value: Int, color: androidx.compose.ui.graphics.Color) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = "$label ",
-            style = MaterialTheme.typography.labelSmall,
-            color = colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = "●".repeat(value) + "○".repeat(5 - value),
-            style = MaterialTheme.typography.labelSmall,
-            color = color
-        )
-    }
+    Text(
+        text = buildAnnotatedString {
+            withStyle(SpanStyle(color = colorScheme.onSurfaceVariant)) { append("$label ") }
+            withStyle(SpanStyle(color = color)) { append("●".repeat(value) + "○".repeat(5 - value)) }
+        },
+        style = MaterialTheme.typography.labelSmall,
+        maxLines = 1,
+        softWrap = false
+    )
 }
 
 private fun upscalerDescription(key: String): Int? = when (key) {

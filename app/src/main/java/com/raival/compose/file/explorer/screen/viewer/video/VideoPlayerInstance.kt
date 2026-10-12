@@ -137,6 +137,8 @@ class VideoPlayerInstance(
         val gpu = withContext(Dispatchers.Default) { GpuCaps.get(ctx) }
         val restore = pendingRestore.also { pendingRestore = null }
         val selection = restore?.shaderSelection?.let(ShaderSelection::decode) ?: library.selection
+        // Shown right away; installing the shaders below can take a moment on first use.
+        _playerState.update { it.copy(shaderSelection = selection) }
         // First use installs the bundled shaders (several MB of text): off the main thread.
         val shaderFiles = withContext(Dispatchers.IO) { library.shaderFiles(selection) }
         setActiveShaders(shaderFiles)
