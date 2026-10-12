@@ -101,11 +101,11 @@ class ShaderVisualTest {
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.OFF) }
             waitUntil("shaders cleared") { mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
             refreshFrame(mpv)
-            val appOff = capture(mpv, "app_off")
+            val appOff = capture(instance, "app_off")
             onMain { instance.setAnime4K(Anime4K.Mode.A, Anime4K.Level.BALANCED) }
             waitUntil("shaders applied") { !mpv.getPropertyString("glsl-shaders").isNullOrEmpty() }
             refreshFrame(mpv)
-            val appOn = capture(mpv, "app_anime4k")
+            val appOn = capture(instance, "app_anime4k")
             val result = metrics(appOff, appOn)
             line(compare("app (hwdec=${mpv.getPropertyString("hwdec")} current=${mpv.getPropertyString("hwdec-current")})", appOff, appOn))
             File(outDir, "results.txt").writeText(report.toString())
@@ -118,10 +118,10 @@ class ShaderVisualTest {
                     mpv.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
                     refreshFrame(mpv)
                     val actual = mpv.getPropertyString("hwdec-current")
-                    val off = capture(mpv, "${hwdec}_off")
+                    val off = capture(instance, "${hwdec}_off")
                     mpv.command(arrayOf("change-list", "glsl-shaders", "set", anime4k))
                     refreshFrame(mpv)
-                    val on = capture(mpv, "${hwdec}_anime4k")
+                    val on = capture(instance, "${hwdec}_anime4k")
                     compare("hwdec=$hwdec (current=$actual)", off, on)
                 }
                 line(outcome ?: "hwdec=$hwdec: stalled (no frame within 60 s)")
@@ -197,14 +197,21 @@ class ShaderVisualTest {
         Thread.sleep(2_500)
     }
 
-    private fun capture(mpv: MPVLib, name: String): Bitmap {
-        val file = File(outDir, "$name.png")
-        file.delete()
-        mpv.command(arrayOf("screenshot-to-file", file.absolutePath, "window"))
-        waitUntil("screenshot $name") { file.length() > 0 }
-        Thread.sleep(200)
-        return BitmapFactory.decodeFile(file.absolutePath)
-            ?: throw AssertionError("could not decode $file")
+    /**
+     * Captures the screen as the user sees it (SurfaceFlinger composition of the video surface,
+     * shaders included). The bundled FFmpeg has no image encoders, so mpv's own screenshot
+     * command can't write files.
+     */
+    private fun capture(instance: VideoPlayerInstance, name: String): Bitmap {
+        onMain {
+            instance.setStatsVisible(false)
+            instance.setControlsVisible(false)
+        }
+        Thread.sleep(1_200)
+        val shot = instrumentation.uiAutomation.takeScreenshot()
+            ?: throw AssertionError("screenshot $name failed")
+        File(outDir, "$name.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        return shot
     }
 
     private fun line(text: String) {
