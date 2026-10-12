@@ -57,8 +57,10 @@ class ShaderSanitizerTest {
     @Test
     fun keepsEveryDirectiveOfTheBundledShaders() {
         assetDirs.flatMap { it.listFiles { f -> f.extension == "glsl" }!!.toList() }.forEach { file ->
-            val source = file.readText()
-            val out = ShaderSanitizer.sanitize(source)
+            // Wide passes are split first (see widePassesAreSplitExactly); everything else
+            // keeps its directives.
+            val source = ShaderSanitizer.splitWidePasses(file.readText())
+            val out = ShaderSanitizer.sanitize(file.readText())
             val before = source.lines().filter { it.trimStart().startsWith("//!") }
             val after = out.lines().filter { it.trimStart().startsWith("//!") }
             assertEquals("directives changed in ${file.name}", before, after)
@@ -109,5 +111,80 @@ class ShaderSanitizerTest {
             assertFalse("local const left in ${file.name}", code.any { Regex("""^\s+const\s""").containsMatchIn(it) })
             assertFalse("uint thread id left in ${file.name}", code.any { it.contains("uvec2 local_xy") })
         }
+    }
+
+    private val termLine = Regex("""^\s*(?:vec4\s+result\s*=|result\s*\+=)\s*(.+);\s*$""")
+
+    /** Summed terms of a shader (initial values the splitter adds are not terms). */
+    private fun terms(source: String): Map<String, Int> = source.lines()
+        .mapNotNull { termLine.find(it)?.groupValues?.get(1)?.trim() }
+        .filterNot { it == "vec4(0.0)" || Regex("""facet_split_\d+_tex\(facet_split_\d+_pos\)""").matches(it) }
+        .groupingBy { it }.eachCount()
+
+    private fun passes(source: String): List<List<String>> {
+        val result = mutableListOf<MutableList<String>>()
+        var previousHeader = false
+        for (line in source.lines()) {
+            val header = line.startsWith("//!")
+            if (header && !previousHeader) result += mutableListOf<String>()
+            result.lastOrNull()?.add(line)
+            previousHeader = header
+        }
+        return result
+    }
+
+    @Test
+    fun widePassesAreSplitExactly() {
+        val files = assetDirs.flatMap { it.listFiles { f -> f.extension == "glsl" }!!.toList() }
+        var split = 0
+        files.forEach { file ->
+            val source = file.readText()
+            val out = ShaderSanitizer.sanitize(source)
+            // No pass may bind more textures than mobile GPUs reliably allow.
+            passes(out).forEach { pass ->
+                val binds = pass.count { it.startsWith("//!BIND") }
+                assertTrue("${file.name}: pass binds $binds textures", binds <= ShaderSanitizer.MAX_BINDS)
+            }
+            // The sum is unchanged: every term appears exactly as often as before.
+            assertEquals("terms changed in ${file.name}", terms(source), terms(out))
+            split += out.split("(part 1/2)").size - 1
+        }
+        assertTrue("expected wide passes in the bundled networks", split > 0)
+    }
+
+    @Test
+    fun everyTextureASplitPassReadsIsBound() {
+        val ref = Regex("""\b([A-Za-z_]\w*?)_(?:tex|texOff|gather|pos|pt|size|raw|mul)\b""")
+        assetDirs.flatMap { it.listFiles { f -> f.extension == "glsl" }!!.toList() }.forEach { file ->
+            val out = ShaderSanitizer.sanitize(file.readText())
+            passes(out).filter { p -> p.any { it.contains("(part ") } }.forEach { pass ->
+                val bound = pass.filter { it.startsWith("//!BIND") }.map { it.removePrefix("//!BIND").trim() }.toSet()
+                val read = pass.filterNot { it.startsWith("//!") || it.startsWith("#") }
+                    .flatMap { line -> ref.findAll(line).map { it.groupValues[1] }.toList() }
+                    .filter { it.startsWith("conv") || it.startsWith("facet_split") || it == "MAIN" || it == "LUMA" }
+                    .toSet()
+                // g_N macros are expanded from their #define lines, which are kept in the pass.
+                val defined = pass.filter { it.startsWith("#define g_") }
+                    .flatMap { line -> ref.findAll(line).map { it.groupValues[1] }.toList() }.toSet()
+                val missing = (read + defined) - bound
+                assertTrue("${file.name} ${pass.first()}: unbound $missing", missing.isEmpty())
+            }
+        }
+    }
+
+    @Test
+    fun narrowPassesAreUntouched() {
+        val pass = """
+            //!DESC narrow
+            //!HOOK MAIN
+            //!BIND MAIN
+            //!BIND a
+            vec4 hook() {
+                vec4 result = vec4(0.1);
+                result += mat4(1.0) * a_tex(a_pos);
+                return result;
+            }
+        """.trimIndent()
+        assertEquals(pass, ShaderSanitizer.splitWidePasses(pass))
     }
 }

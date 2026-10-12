@@ -27,11 +27,18 @@ package com.raival.compose.file.explorer.screen.viewer.video.mpv
  *    dropped from indented (function-local) declarations; the values are never written.
  * 5. Implicit uint/int conversions (`uvec2 local_xy = gl_LocalInvocationID.xy` mixed with ints).
  *    -> such thread ids become `ivec2`, and loops over them use `int`.
+ *
+ * 6. Passes sampling more textures than mobile GPUs reliably allow. GLSL ES guarantees only 16
+ *    texture units per fragment shader, and the largest networks (Anime4K UL / GAN UUL, ArtCNN
+ *    C4F32) have 1x1 merge passes binding exactly 16 inputs, which fails to link on some GPUs.
+ *    Those passes are plain sums (`result += M * input`), so they are split in two exactly
+ *    equivalent passes: the first sums half of the inputs into an intermediate float texture,
+ *    the second reads it and adds the rest. Passes with any other shape are left alone.
  */
 object ShaderSanitizer {
 
     /** Bumped when the output changes, so installed copies are regenerated. */
-    const val VERSION = 2
+    const val VERSION = 3
 
     private val SAMPLING = listOf(
         "tex" to "pos",
@@ -42,7 +49,7 @@ object ShaderSanitizer {
     fun sanitize(source: String): String {
         val out = StringBuilder(source.length + 1024)
         val intIds = mutableSetOf<String>()
-        val lines = source.replace("\r\n", "\n").split('\n')
+        val lines = splitWidePasses(source.replace("\r\n", "\n")).split('\n')
         var i = 0
         while (i < lines.size) {
             val line = lines[i]
@@ -118,4 +125,148 @@ object ShaderSanitizer {
         alias("MAIN", "MAINPRESUB")
         stages.map(::boundName).distinct().forEach { alias("HOOKED", it) }
     }
+
+    // --- 6. Splitting passes with too many bound textures ---------------------------------
+
+    /** Passes binding more textures than this are split (12 is known to work everywhere). */
+    internal const val MAX_BINDS = 12
+
+    private val SAMPLE_REF = Regex("""\b([A-Za-z_]\w*?)_(?:tex|texOff|gather|pos|pt|size|raw|mul|map|off|rot)\b""")
+    private val G_DEFINE = Regex("""^#define\s+(g_\d+)\s+(.*)$""")
+    private val G_REF = Regex("""\bg_\d+\b""")
+    private val RESULT_INIT = Regex("""^\s*vec4\s+result\s*=\s*(.+);\s*$""")
+    private val RESULT_ADD = Regex("""^\s*result\s*\+=\s*(.+);\s*$""")
+    private val RETURN = Regex("""^\s*return\s+(.+);\s*$""")
+
+    internal fun splitWidePasses(source: String): String {
+        val lines = source.split('\n')
+        // Pass boundaries: a pass starts at a header line following a non-header line.
+        val starts = lines.indices.filter { i ->
+            lines[i].startsWith("//!") && (i == 0 || !lines[i - 1].startsWith("//!"))
+        }
+        if (starts.isEmpty()) return source
+        val out = mutableListOf<String>()
+        out += lines.subList(0, starts.first())
+        starts.forEachIndexed { n, start ->
+            val end = starts.getOrNull(n + 1) ?: lines.size
+            val pass = lines.subList(start, end)
+            out += splitPass(pass, "facet_split_$n") ?: pass
+        }
+        return out.joinToString("\n")
+    }
+
+    /** The two passes replacing [pass], or null if it needs no split or has another shape. */
+    private fun splitPass(pass: List<String>, tmp: String): List<String>? {
+        val headerCount = pass.indexOfFirst { !it.startsWith("//!") }.let { if (it < 0) pass.size else it }
+        val headers = pass.subList(0, headerCount)
+        val binds = headers.filter { it.startsWith("//!BIND") }.map { it.removePrefix("//!BIND").trim() }
+        if (binds.size <= MAX_BINDS) return null
+        if (headers.any { it.startsWith("//!COMPUTE") }) return null
+        val body = pass.subList(headerCount, pass.size)
+
+        // Shape: [#define g_N (...)]* vec4 hook() { vec4 result = X; [result += Y;]* return Z; }
+        val gDefines = linkedMapOf<String, String>()
+        val otherDefines = mutableListOf<String>()
+        var i = 0
+        while (i < body.size && !body[i].trimStart().startsWith("vec4 hook()")) {
+            val line = body[i]
+            val g = G_DEFINE.find(line.trim())
+            when {
+                g != null -> gDefines[g.groupValues[1]] = g.groupValues[2]
+                line.isBlank() -> {}
+                line.trimStart().startsWith("#define") -> otherDefines += line
+                else -> return null
+            }
+            i++
+        }
+        if (i >= body.size || body[i].trim() != "vec4 hook() {") return null
+        i++
+        val init = RESULT_INIT.find(body.getOrNull(i) ?: return null)?.groupValues?.get(1) ?: return null
+        i++
+        val adds = mutableListOf(init)
+        while (i < body.size && RESULT_ADD.matches(body[i])) {
+            adds += RESULT_ADD.find(body[i])!!.groupValues[1]
+            i++
+        }
+        val ret = RETURN.find(body.getOrNull(i) ?: return null)?.groupValues?.get(1) ?: return null
+        i++
+        if (body.getOrNull(i)?.trim() != "}" || body.drop(i + 1).any { it.isNotBlank() }) return null
+
+        fun refs(expr: String): Set<String> {
+            val direct = SAMPLE_REF.findAll(expr).map { it.groupValues[1] }
+            val viaG = G_REF.findAll(expr).flatMap { m ->
+                SAMPLE_REF.findAll(gDefines[m.value] ?: "").map { it.groupValues[1] }
+            }
+            return (direct + viaG).filter { it in binds }.toSet()
+        }
+        // Every texture use must be visible as a bound name, or the split could miss one.
+        val terms = adds.map { it to refs(it) }
+        val returnRefs = refs(ret)
+        if (otherDefines.any { d -> binds.any { d.contains("${it}_") } }) return null
+
+        // Textures read together must stay together: group them (union-find over terms).
+        val parent = binds.associateWith { it }.toMutableMap()
+        fun find(x: String): String = if (parent[x] == x) x else find(parent[x]!!).also { parent[x] = it }
+        for ((_, r) in terms) r.drop(1).forEach { parent[find(it)] = find(r.first()) }
+        val groups = binds.groupBy { find(it) }.values.toList()
+        // First pass: whole groups in bind order up to half the textures, never the ones the
+        // return expression needs.
+        val firstTextures = mutableSetOf<String>()
+        for (group in groups) {
+            if (group.any { it in returnRefs }) continue
+            if (firstTextures.size + group.size > binds.size / 2) continue
+            firstTextures += group
+        }
+        if (firstTextures.isEmpty()) return null
+        val secondTextures = binds.filterNot { it in firstTextures }
+        if (firstTextures.size > MAX_BINDS || secondTextures.size + 1 > MAX_BINDS) return null
+
+        val firstTerms = terms.filter { (_, r) -> r.isNotEmpty() && r.all { it in firstTextures } }.map { it.first }
+        val secondTerms = terms.map { it.first }.filterNot { it in firstTerms }
+        fun gLines(exprs: List<String>) = gDefines.filterKeys { g ->
+            exprs.any { e -> Regex("""\b$g\b""").containsMatchIn(e) }
+        }.map { (g, v) -> "#define $g $v" }
+
+        val desc = headers.firstOrNull { it.startsWith("//!DESC") }?.removePrefix("//!DESC")?.trim() ?: "pass"
+        val kept = headers.filterNot { it.startsWith("//!DESC") || it.startsWith("//!BIND") || it.startsWith("//!SAVE") || it.startsWith("//!COMPONENTS") }
+        val first = buildList {
+            add("//!DESC $desc (part 1/2)")
+            addAll(kept.filter { it.startsWith("//!HOOK") })
+            binds.filter { it in firstTextures }.forEach { add("//!BIND $it") }
+            add("//!SAVE $tmp")
+            addAll(kept.filterNot { it.startsWith("//!HOOK") })
+            add("//!COMPONENTS 4")
+            addAll(otherDefines)
+            addAll(gLines(firstTerms))
+            add("vec4 hook() {")
+            add("    vec4 result = vec4(0.0);")
+            firstTerms.forEach { add("    result += $it;") }
+            add("    return result;")
+            add("}")
+            add("")
+        }
+        val second = buildList {
+            add("//!DESC $desc (part 2/2)")
+            for (h in headers) {
+                when {
+                    h.startsWith("//!DESC") -> {}
+                    h.startsWith("//!BIND") -> if (h.removePrefix("//!BIND").trim() in secondTextures) add(h)
+                    else -> add(h)
+                }
+            }
+            // The intermediate sum goes last so the original header order is kept.
+            add(indexOfLastBind(this) + 1, "//!BIND $tmp")
+            addAll(otherDefines)
+            addAll(gLines(secondTerms + ret))
+            add("vec4 hook() {")
+            add("    vec4 result = ${tmp}_tex(${tmp}_pos);")
+            secondTerms.forEach { add("    result += $it;") }
+            add("    return $ret;")
+            add("}")
+            add("")
+        }
+        return first + second
+    }
+
+    private fun indexOfLastBind(lines: List<String>): Int = lines.indexOfLast { it.startsWith("//!BIND") }
 }

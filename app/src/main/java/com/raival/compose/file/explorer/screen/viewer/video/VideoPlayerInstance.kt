@@ -672,11 +672,17 @@ class VideoPlayerInstance(
      * When the GPU driver rejects a shader, libplacebo logs the compile log and then the full
      * generated source at error level. Collect them into one report the user can share.
      */
+    /**
+     * Messages meaning a user shader pass will not run: a compile/link failure with a driver
+     * log, or a program the driver refused without one (libplacebo then disables the hook).
+     */
+    private fun startsShaderFailure(text: String) = SHADER_FAILURE_MARKERS.any { text.contains(it) }
+
     private fun collectShaderError(prefix: String, text: String) {
         if (!prefix.contains("libplacebo") && !prefix.startsWith("vo/")) return
         synchronized(shaderErrorBuffer) {
             if (shaderErrorBuffer.length > 512 * 1024) return
-            if (text.contains("shader compile log") || text.contains("program link log")) {
+            if (startsShaderFailure(text)) {
                 if (shaderErrorBuffer.isNotEmpty()) shaderErrorBuffer.append("\n----\n")
             }
             shaderErrorBuffer.append('[').append(prefix).append("] ").append(text.trimEnd()).append('\n')
@@ -691,7 +697,7 @@ class VideoPlayerInstance(
     private fun publishShaderReport() {
         val ctx = appContext ?: return
         val text = synchronized(shaderErrorBuffer) { shaderErrorBuffer.toString() }
-        if (!text.contains("shader compile log") && !text.contains("program link log")) return
+        if (!SHADER_FAILURE_MARKERS.any { text.contains(it) }) return
         val gpu = GpuCaps.get(ctx)
         val selection = _playerState.value.shaderSelection.encode()
         val report = buildString {
@@ -705,7 +711,8 @@ class VideoPlayerInstance(
         }
         val file = File(ctx.cacheDir, "shader-error-report.txt").apply { writeText(report) }
         val firstError = Regex("""ERROR:[^\n]*""").find(text)?.value
-            ?: text.lineSequence().firstOrNull { it.contains("compile log") }.orEmpty()
+            ?: text.lineSequence().firstOrNull { line -> SHADER_FAILURE_MARKERS.any { line.contains(it) } }
+                ?.substringAfter("] ").orEmpty()
         _playerState.update { it.copy(shaderErrorReport = ShaderErrorReport(file, firstError.take(300))) }
     }
 
@@ -852,6 +859,11 @@ class VideoPlayerInstance(
         const val DEBUG_HWDEC_KEY = "debug_hwdec_override"
         const val DEBUG_DEVICE_POLICY_KEY = "debug_device_hwdec_policy"
         const val DEBUG_LOG_FILE_KEY = "debug_mpv_log_file"
+
+        private val SHADER_FAILURE_MARKERS = listOf(
+            "shader compile log", "program link log",
+            "Failed compiling/linking GLSL program", "Failed executing hook"
+        )
 
         /**
          * - shaders active: mediacodec-copy (frames in normal textures, shaders apply)

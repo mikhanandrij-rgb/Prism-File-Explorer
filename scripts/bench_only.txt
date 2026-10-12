@@ -1,1 +1,1 @@
-off:a4k_bb_quality:a4k_ca_quality:artcnn_c4f16:artcnn_c4f16_ds:artcnn_c4f32:artcnn_c4f32_ds:gan_x3_vl:gan_x4_uul
+off:a4k_a_fast:a4k_a_balanced:a4k_a_quality:a4k_a_ultra:a4k_aa_quality:a4k_aa_ultra:a4k_c_quality:artcnn_c4f16:artcnn_c4f16_ds:artcnn_c4f32:artcnn_c4f32_ds:gan_x3_vl:gan_x4_uul
