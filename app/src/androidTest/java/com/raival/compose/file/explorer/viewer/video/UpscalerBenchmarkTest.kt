@@ -77,7 +77,10 @@ class UpscalerBenchmarkTest {
     fun setUp() {
         grantStorageAccess()
         shell("settings put secure immersive_mode_confirmations confirmed")
-        shell("settings put global hide_error_dialogs 1")
+        // The emulator renders on the CPU: a heavy frame can take seconds, which Android reports
+        // as a GPU hang (ANR). With error dialogs hidden it kills the app; with them shown the
+        // test presses "Wait" and carries on. Real GPUs render these frames in milliseconds.
+        shell("settings put global hide_error_dialogs 0")
         val file = File(context.cacheDir, "upscale_benchmark.mp4")
         instrumentation.context.assets.open("upscale_benchmark.mp4").use { input ->
             file.outputStream().use { input.copyTo(it) }
@@ -127,6 +130,7 @@ class UpscalerBenchmarkTest {
                 passes = passes(mpv, descs)
                 if (onMain { instance.playerState.value.shaderErrorReport } != null) break
                 if (descs.isEmpty() || passes.first > 0) break
+                dismissSystemDialogs()
                 Thread.sleep(500)
             }
             Thread.sleep(1_500)
