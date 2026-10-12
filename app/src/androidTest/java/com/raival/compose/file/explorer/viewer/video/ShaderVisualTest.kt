@@ -75,7 +75,6 @@ class ShaderVisualTest {
         context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
             .putString(VideoPlayerInstance.DEBUG_HWDEC_KEY, "no")
             .commit()
-        outDir.deleteRecursively()
         outDir.mkdirs()
     }
 
@@ -158,7 +157,73 @@ class ShaderVisualTest {
         }
     }
 
+    @Test
+    fun importedCustomShaderPresetIsApplied() {
+        // A user shader file, imported the same way as from the file picker.
+        val shaderFile = File(context.cacheDir, "Facet Invert Test.glsl").apply {
+            writeText(
+                """
+                //!HOOK MAIN
+                //!BIND HOOKED
+                //!DESC Facet test invert
+                vec4 hook() {
+                    vec4 c = HOOKED_texOff(0);
+                    return vec4(vec3(1.0) - c.rgb, c.a);
+                }
+                """.trimIndent()
+            )
+        }
+        val shaderUri = FileProvider.getUriForFile(context, context.packageName + ".provider", shaderFile)
+        val intent = Intent(context, VideoPlayerActivity::class.java)
+            .setAction(Intent.ACTION_VIEW)
+            .setDataAndType(videoUri, "video/mp4")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+
+        ActivityScenario.launch<VideoPlayerActivity>(intent).use { scenario ->
+            scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            val instance = waitForPlayback()
+            onMain { instance.pause() }
+            waitUntil("paused") { !onMain { instance.playerState.value.isPlaying } }
+            Thread.sleep(1_500)
+            val before = capture(instance, "custom_off")
+
+            val (imported, errors) = onMain { instance.importShaders(listOf(shaderUri)) }
+            assertTrue("import failed: $errors", imported == 1 && errors.isEmpty())
+            val ref = onMain { instance.userShaders() }.single { it.displayName == "Facet Invert Test" }
+            val preset = com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderPreset(
+                name = "Invert", shaders = listOf(ref.id)
+            )
+            onMain { instance.savePreset(preset) }
+            val mpv = onMain { instance.engineHandle() } as MPVLib
+            waitUntil("custom shader applied") {
+                mpv.getPropertyString("glsl-shaders").orEmpty().contains("Facet Invert Test")
+            }
+            Thread.sleep(2_500)
+            val after = capture(instance, "custom_invert")
+
+            val lumaBefore = meanLuma(before)
+            val lumaAfter = meanLuma(after)
+            line(String.format(Locale.ROOT, "custom invert: luma before=%.1f after=%.1f", lumaBefore, lumaAfter))
+            File(outDir, "results-custom.txt").writeText(report.toString())
+            // Mostly light frame (centre luma ~160) must turn mostly dark (~95) after inversion.
+            assertTrue("custom shader not applied:\n$report", lumaBefore > 130 && lumaAfter < lumaBefore * 0.7)
+        }
+    }
+
     // --- helpers -------------------------------------------------------------------------
+
+    private fun meanLuma(bitmap: Bitmap): Double {
+        val w = bitmap.width
+        val h = bitmap.height
+        val luma = luma(bitmap, w, h)
+        var sum = 0.0
+        var n = 0
+        for (y in h / 4 until h * 3 / 4) for (x in w / 4 until w * 3 / 4) {
+            sum += luma[y * w + x]
+            n++
+        }
+        return sum / n
+    }
 
     private data class Metrics(val meanDiff: Double, val sharpOff: Double, val sharpOn: Double) {
         val sharpnessGain: Double get() = if (sharpOff > 0) sharpOn / sharpOff else 0.0

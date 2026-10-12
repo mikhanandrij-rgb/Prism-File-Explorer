@@ -127,6 +127,7 @@ jobs:
           python3 scripts/junit_summary.py 'app/build/outputs/androidTest-results/connected/**/*.xml' > junit-summary.txt || true
           [ -s junit-summary.txt ] && python3 scripts/ci_annotate.py notice junit-summary.txt junit
           [ -f shader-test/results.txt ] && python3 scripts/ci_annotate.py notice shader-test/results.txt shader-visual
+          [ -f shader-test/results-custom.txt ] && python3 scripts/ci_annotate.py notice shader-test/results-custom.txt shader-custom
           if [ "${{ job.status }}" != "success" ]; then
             [ -f connected.log ] && python3 scripts/ci_annotate.py errors connected.log
             if [ -f logcat.txt ]; then
