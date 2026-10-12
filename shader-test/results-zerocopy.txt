@@ -1,0 +1,4 @@
+zero-copy flow: decoder before=mediacodec
+zero-copy flow: decoder after=mediacodec-copy passes=20
+zero-copy flow: meanDiff=4.41 sharpness off=9.81 on=14.82 gain=1.51x
+zero-copy flow: decoder after turning shaders off=mediacodec playing=true

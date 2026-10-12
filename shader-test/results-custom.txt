@@ -1,0 +1,1 @@
+custom invert: luma before=158.2 after=96.6
