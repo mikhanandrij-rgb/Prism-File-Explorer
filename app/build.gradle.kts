@@ -16,6 +16,12 @@ android {
         versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Fresh app process per test: a hang in one test can't poison the others.
+        testInstrumentationRunnerArguments["clearPackageData"] = "true"
+    }
+
+    testOptions {
+        execution = "ANDROIDX_TEST_ORCHESTRATOR"
     }
 
     // libmpv ships native code for four ABIs (~25 MB each): build one APK per ABI instead of
@@ -146,4 +152,5 @@ dependencies {
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.uiautomator)
+    androidTestUtil(libs.androidx.test.orchestrator)
 }
