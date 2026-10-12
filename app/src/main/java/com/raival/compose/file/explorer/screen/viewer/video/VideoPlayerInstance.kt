@@ -399,7 +399,10 @@ class VideoPlayerInstance(
         }
         // A paused frame is not re-rendered on its own: redraw it so the change is visible.
         if (lib.getPropertyBoolean("pause") == true) {
-            lib.command(arrayOf("seek", "0", "relative+exact"))
+            // Exact seek to the current timestamp re-renders the very same frame.
+            lib.getPropertyDouble("time-pos")?.let { pos ->
+                lib.command(arrayOf("seek", String.format(Locale.ROOT, "%.6f", pos), "absolute+exact"))
+            }
         }
     }
 

@@ -124,8 +124,9 @@ class ShaderVisualTest {
             onMain { instance.setCompareOriginal(false) }
             Thread.sleep(2_500)
             val compareReleased = capture(instance, "compare_release")
-            val holdVsOff = metrics(appOff, compareOriginal).meanDiff
-            val releaseVsOn = metrics(appOn, compareReleased).meanDiff
+            // Lower band of the video: the "Original" badge sits above it.
+            val holdVsOff = metrics(appOff, compareOriginal, lowerBand = true).meanDiff
+            val releaseVsOn = metrics(appOn, compareReleased, lowerBand = true).meanDiff
             line(String.format(Locale.ROOT, "compare: hold vs off diff=%.2f, release vs anime4k diff=%.2f", holdVsOff, releaseVsOn))
             File(outDir, "results.txt").writeText(report.toString())
 
@@ -172,13 +173,13 @@ class ShaderVisualTest {
     }
 
     /** Mean absolute luma difference and mean |Laplacian| (edge sharpness) in the centre. */
-    private fun metrics(a: Bitmap, b: Bitmap): Metrics {
+    private fun metrics(a: Bitmap, b: Bitmap, lowerBand: Boolean = false): Metrics {
         val w = minOf(a.width, b.width)
         val h = minOf(a.height, b.height)
         val x0 = w / 4
-        val y0 = h / 4
         val x1 = w * 3 / 4
-        val y1 = h * 3 / 4
+        val y0 = if (lowerBand) h * 55 / 100 else h / 4
+        val y1 = if (lowerBand) h * 85 / 100 else h * 3 / 4
         val la = luma(a, w, h)
         val lb = luma(b, w, h)
         var diff = 0.0
