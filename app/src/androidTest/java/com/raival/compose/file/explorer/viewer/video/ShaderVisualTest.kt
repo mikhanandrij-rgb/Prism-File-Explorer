@@ -62,6 +62,8 @@ class ShaderVisualTest {
         grantStorageAccess()
         // Android's one-time "Viewing full screen" hint would cover the video in screenshots.
         shell("settings put secure immersive_mode_confirmations confirmed")
+        // A slow emulator may pop "app isn't responding" dialogs over the video.
+        shell("settings put global hide_error_dialogs 1")
         val file = File(context.cacheDir, "upscale_test.mp4")
         instrumentation.context.assets.open("upscale_test.mp4").use { input ->
             file.outputStream().use { input.copyTo(it) }
@@ -203,9 +205,10 @@ class ShaderVisualTest {
     }
 
     private fun anime4kPasses(mpv: MPVLib): Int {
-        val count = mpv.getPropertyInt("vo-passes/fresh/count") ?: return -1
-        return (0 until count).count { i ->
-            mpv.getPropertyString("vo-passes/fresh/$i/desc").orEmpty().contains("Anime4K", ignoreCase = true)
+        val json = mpv.getPropertyString("vo-passes") ?: return -1
+        val fresh = org.json.JSONObject(json).getJSONArray("fresh")
+        return (0 until fresh.length()).count { i ->
+            fresh.getJSONObject(i).optString("desc").contains("Anime4K", ignoreCase = true)
         }
     }
 
@@ -235,10 +238,22 @@ class ShaderVisualTest {
             instance.setControlsVisible(false)
         }
         Thread.sleep(1_200)
+        dismissSystemDialogs()
         val shot = instrumentation.uiAutomation.takeScreenshot()
             ?: throw AssertionError("screenshot $name failed")
         File(outDir, "$name.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
         return shot
+    }
+
+    private fun dismissSystemDialogs() {
+        val device = androidx.test.uiautomator.UiDevice.getInstance(instrumentation)
+        repeat(3) {
+            val button = device.findObject(androidx.test.uiautomator.By.text("Wait"))
+                ?: device.findObject(androidx.test.uiautomator.By.text("Close app"))
+                ?: return
+            button.click()
+            Thread.sleep(800)
+        }
     }
 
     private fun line(text: String) {

@@ -455,6 +455,7 @@ class VideoPlayerInstance(
 
     private fun readStats(lib: MPVLib): PlaybackStats {
         val surface = lib.getPropertyString("android-surface-size")?.split("x")
+        val passes = renderPasses(lib)
         return PlaybackStats(
             videoWidth = lib.getPropertyInt("video-params/w") ?: 0,
             videoHeight = lib.getPropertyInt("video-params/h") ?: 0,
@@ -468,23 +469,27 @@ class VideoPlayerInstance(
             outputDrops = (lib.getPropertyInt("frame-drop-count") ?: 0).toLong(),
             delayedFrames = (lib.getPropertyInt("vo-delayed-frame-count") ?: 0).toLong(),
             activeShaders = activeShaderCount,
-            renderPasses = lib.getPropertyInt("vo-passes/fresh/count") ?: -1,
-            shaderPasses = countShaderPasses(lib),
+            renderPasses = passes.first,
+            shaderPasses = passes.second,
             gpu = appContext?.let { GpuCaps.get(it) }
         )
     }
 
-    /** Passes of user shaders mpv actually ran for the last fresh frame. */
-    private fun countShaderPasses(lib: MPVLib): Int {
-        val count = lib.getPropertyInt("vo-passes/fresh/count") ?: return -1
-        val builtIn = setOf("scale", "color", "convert", "dither", "output", "sample", "debanding",
-            "film grain", "deband", "overlay", "osd", "linearize", "sigmoid", "peak", "tone", "icc")
-        var user = 0
-        for (i in 0 until count) {
-            val desc = lib.getPropertyString("vo-passes/fresh/$i/desc")?.lowercase() ?: continue
-            if (desc.contains("anime4k") || builtIn.none { desc.contains(it) }) user++
-        }
-        return user
+    /** Render passes of the last fresh frame: (total, from user shaders). (-1, -1) if unknown. */
+    private fun renderPasses(lib: MPVLib): Pair<Int, Int> {
+        // vo-passes is a node; as a string mpv returns it as JSON.
+        val json = lib.getPropertyString("vo-passes") ?: return -1 to -1
+        return runCatching {
+            val fresh = org.json.JSONObject(json).getJSONArray("fresh")
+            val builtIn = listOf("scale", "color", "convert", "dither", "output", "sample", "deband",
+                "grain", "overlay", "osd", "linear", "sigmoid", "peak", "tone", "icc", "chroma", "plane")
+            var user = 0
+            for (i in 0 until fresh.length()) {
+                val desc = fresh.getJSONObject(i).optString("desc").lowercase()
+                if (desc.contains("anime4k") || builtIn.none { desc.contains(it) }) user++
+            }
+            fresh.length() to user
+        }.getOrDefault(-1 to -1)
     }
 
     /** Latest playback position reported by mpv (ms). Never blocks. */
