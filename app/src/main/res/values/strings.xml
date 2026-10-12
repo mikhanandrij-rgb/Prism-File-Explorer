@@ -521,7 +521,7 @@
     <string name="video_shaders_new_preset">New preset</string>
     <string name="video_shaders_import">Import .glsl</string>
     <string name="video_shaders_imported">Imported shaders: %1$d</string>
-    <string name="video_shader_compute_unsupported">%1$s is a compute shader. Android's OpenGL ES renderer can't run compute shaders; look for a fragment-shader version.</string>
+    <string name="video_shader_compute_unsupported">%1$s is a compute shader. The OpenGL ES renderer on Android can’t run compute shaders; look for a fragment-shader version.</string>
     <string name="video_shaders_delete_preset">Delete preset?</string>
     <string name="video_shaders_preset_name">Preset name</string>
     <string name="video_shaders_chain">Shaders in this preset</string>
