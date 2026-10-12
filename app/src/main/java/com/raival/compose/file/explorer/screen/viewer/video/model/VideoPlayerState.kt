@@ -65,5 +65,7 @@ data class PlaybackStats(
     val renderPasses: Int = -1,
     /** Of those, passes from user shaders (Anime4K / custom). */
     val shaderPasses: Int = -1,
+    /** Average GPU time to render one frame (all passes), ms; null if the GPU can't time it. */
+    val gpuTimeMs: Double? = null,
     val gpu: com.raival.compose.file.explorer.screen.viewer.video.mpv.GpuCaps.Info? = null
 )

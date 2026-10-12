@@ -7,14 +7,16 @@ import java.io.File
  * Anime4K real-time upscaling shaders (https://github.com/bloc97/Anime4K, MIT license),
  * applied through mpv's `glsl-shaders`.
  *
- * The shader chains follow the official mpv templates shipped with Anime4K v4:
- * - [Level.BALANCED] is the official "Mode X (Fast)" chain (desktop low-end GPU),
- * - [Level.QUALITY] is the official "Mode X (HQ)" chain (desktop high-end GPU),
- * - [Level.FAST] is a lighter single-pass variant for phones (S networks, one x2 upscale).
+ * The shader chains follow the official mpv templates shipped with Anime4K v4
+ * (md/Template in the Anime4K repository), including the "A+A", "B+B" and "C+A" modes:
+ * - [Level.BALANCED] is the official "Fast" chain (M networks, S refine),
+ * - [Level.QUALITY] is the official "HQ" chain (VL networks, M refine),
+ * - [Level.ULTRA] is the HQ chain with the largest UL networks in place of VL,
+ * - [Level.FAST] is a lighter variant for phones (S networks, a single x2 upscale).
  *
  * Upscale passes only run when the output is at least 1.2x larger than the video in both
  * dimensions (`//!WHEN` conditions inside the shaders), so a 1080p video on a 1080p screen is
- * not upscaled. Nothing here changes the chosen preset on its own.
+ * not upscaled. Restore passes always run. Nothing here changes the chosen preset on its own.
  */
 object Anime4K {
 
@@ -27,20 +29,27 @@ object Anime4K {
         B,
 
         /** Upscale + denoise: for already clean sources (good 1080p). */
-        C
+        C,
+
+        /** Restore twice (before and after the first upscale): strongest, may add ringing. */
+        AA,
+
+        /** Soft restore twice. */
+        BB,
+
+        /** Denoise-upscale, then a restore pass on the upscaled image. */
+        CA
     }
 
     enum class Level {
         OFF,
         FAST,
         BALANCED,
-        QUALITY
+        QUALITY,
+        ULTRA
     }
 
-    private const val ASSET_DIR = "anime4k"
-
-    /** Bump when the bundled shader files change so installed copies are refreshed. */
-    private const val SHADERS_VERSION = 1
+    internal const val ASSET_DIR = "anime4k"
 
     private const val CLAMP = "Anime4K_Clamp_Highlights.glsl"
     private const val DOWNSCALE_X2 = "Anime4K_AutoDownscalePre_x2.glsl"
@@ -60,23 +69,31 @@ object Anime4K {
                 Mode.A -> listOf(CLAMP, restore("S"), upscale("S"))
                 Mode.B -> listOf(CLAMP, restoreSoft("S"), upscale("S"))
                 Mode.C -> listOf(CLAMP, upscaleDenoise("S"))
+                Mode.AA -> listOf(CLAMP, restore("S"), upscale("S"), restore("S"))
+                Mode.BB -> listOf(CLAMP, restoreSoft("S"), upscale("S"), restoreSoft("S"))
+                Mode.CA -> listOf(CLAMP, upscaleDenoise("S"), restore("S"))
             }
         }
 
-        // Official mpv templates: first network size, second (refining) upscale size.
-        val (main, second) = if (level == Level.BALANCED) "M" to "S" else "VL" to "M"
+        // Official templates: first network size, second (refining) size.
+        val (main, second) = when (level) {
+            Level.BALANCED -> "M" to "S"
+            Level.QUALITY -> "VL" to "M"
+            else -> "UL" to "M"
+        }
+        val downscale = listOf(DOWNSCALE_X2, DOWNSCALE_X4)
         return when (mode) {
-            Mode.A -> listOf(
-                CLAMP, restore(main), upscale(main), DOWNSCALE_X2, DOWNSCALE_X4, upscale(second)
-            )
+            Mode.A -> listOf(CLAMP, restore(main), upscale(main)) + downscale + upscale(second)
+            Mode.B -> listOf(CLAMP, restoreSoft(main), upscale(main)) + downscale + upscale(second)
+            Mode.C -> listOf(CLAMP, upscaleDenoise(main)) + downscale + upscale(second)
+            Mode.AA -> listOf(CLAMP, restore(main), upscale(main), restore(second)) + downscale +
+                    upscale(second)
 
-            Mode.B -> listOf(
-                CLAMP, restoreSoft(main), upscale(main), DOWNSCALE_X2, DOWNSCALE_X4, upscale(second)
-            )
+            Mode.BB -> listOf(CLAMP, restoreSoft(main), upscale(main)) + downscale +
+                    listOf(restoreSoft(second), upscale(second))
 
-            Mode.C -> listOf(
-                CLAMP, upscaleDenoise(main), DOWNSCALE_X2, DOWNSCALE_X4, upscale(second)
-            )
+            Mode.CA -> listOf(CLAMP, upscaleDenoise(main)) + downscale +
+                    listOf(restore(second), upscale(second))
         }
     }
 
@@ -86,34 +103,11 @@ object Anime4K {
             Level.entries.flatMap { level -> shaderChain(mode, level) }
         }.toSet()
 
-    /**
-     * Copies the bundled shaders to app storage (mpv needs real file paths) and returns the
-     * directory. Cheap after the first call for a given [SHADERS_VERSION].
-     */
-    @Synchronized
-    fun installShaders(context: Context): File {
-        val dir = File(context.filesDir, "mpv/shaders/anime4k-v$SHADERS_VERSION-s${ShaderSanitizer.VERSION}")
-        val marker = File(dir, ".complete")
-        if (marker.exists()) return dir
-
-        dir.parentFile?.listFiles()?.forEach { old ->
-            if (old.name.startsWith("anime4k-") && old != dir) old.deleteRecursively()
-        }
-        dir.mkdirs()
-        for (name in allShaders) {
-            // Rewritten so mobile GLSL ES compilers accept them (see ShaderSanitizer).
-            val source = context.assets.open("$ASSET_DIR/$name").use { it.readBytes().toString(Charsets.UTF_8) }
-            File(dir, name).writeText(ShaderSanitizer.sanitize(source))
-        }
-        marker.createNewFile()
-        return dir
-    }
-
     /** Absolute shader paths for mpv, joined with ':' as `glsl-shaders` expects. */
     fun shaderPathList(context: Context, mode: Mode, level: Level): String {
         val chain = shaderChain(mode, level)
         if (chain.isEmpty()) return ""
-        val dir = installShaders(context)
+        val dir = BundledShaders.install(context)
         return chain.joinToString(":") { File(dir, it).absolutePath }
     }
 }

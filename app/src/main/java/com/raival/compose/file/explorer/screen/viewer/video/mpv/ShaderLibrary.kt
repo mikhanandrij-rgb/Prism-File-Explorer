@@ -15,10 +15,14 @@ sealed interface ShaderSelection {
     data class Anime4KPreset(val mode: Anime4K.Mode, val level: Anime4K.Level) : ShaderSelection
     data class Custom(val presetId: String) : ShaderSelection
 
+    /** One of [BundledShaders.presets] (ArtCNN, CuNNy, Anime4K GAN). */
+    data class Bundled(val presetId: String) : ShaderSelection
+
     fun encode(): String = when (this) {
         Off -> "off"
         is Anime4KPreset -> "a4k:${mode.name}:${level.name}"
         is Custom -> "custom:$presetId"
+        is Bundled -> "bundled:$presetId"
     }
 
     companion object {
@@ -36,6 +40,8 @@ sealed interface ShaderSelection {
                 }
 
                 "custom" -> parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { Custom(it) } ?: Off
+                "bundled" -> parts.getOrNull(1)?.takeIf { BundledShaders.preset(it) != null }
+                    ?.let { Bundled(it) } ?: Off
                 else -> Off
             }
         }
@@ -76,7 +82,7 @@ class ShaderLibrary(context: Context) {
         get() = File(appContext.filesDir, "mpv/shaders/user").apply { mkdirs() }
 
     fun builtInShaders(): List<ShaderRef> =
-        Anime4K.allShaders.sorted().map { ShaderRef(ShaderRef.BUILT_IN + it) }
+        BundledShaders.allFiles.map { ShaderRef(ShaderRef.BUILT_IN + it) }
 
     fun userShaders(): List<ShaderRef> =
         userDir.listFiles { f -> f.isFile }
@@ -121,7 +127,7 @@ class ShaderLibrary(context: Context) {
 
     /** The file handed to mpv: bundled shaders are installed sanitized; user shaders get a sanitized copy. */
     fun fileOf(ref: ShaderRef): File? {
-        if (ref.isBuiltIn) return File(Anime4K.installShaders(appContext), ref.fileName).takeIf { it.isFile }
+        if (ref.isBuiltIn) return File(BundledShaders.install(appContext), ref.fileName).takeIf { it.isFile }
         val original = File(userDir, ref.fileName).takeIf { it.isFile } ?: return null
         val sanitizedDir = File(appContext.filesDir, "mpv/shaders/user-gles-s${ShaderSanitizer.VERSION}").apply { mkdirs() }
         val sanitized = File(sanitizedDir, ref.fileName)
@@ -166,9 +172,13 @@ class ShaderLibrary(context: Context) {
     fun shaderFiles(selection: ShaderSelection): List<File> = when (selection) {
         ShaderSelection.Off -> emptyList()
         is ShaderSelection.Anime4KPreset -> {
-            val dir = Anime4K.installShaders(appContext)
+            val dir = BundledShaders.install(appContext)
             Anime4K.shaderChain(selection.mode, selection.level).map { File(dir, it) }
         }
+
+        is ShaderSelection.Bundled -> BundledShaders.preset(selection.presetId)
+            ?.let { BundledShaders.files(appContext, it) }
+            .orEmpty()
 
         is ShaderSelection.Custom -> presets().firstOrNull { it.id == selection.presetId }
             ?.shaders?.mapNotNull { fileOf(ShaderRef(it)) }

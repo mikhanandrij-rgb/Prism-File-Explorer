@@ -1,0 +1,2 @@
+CuNNy mpv shaders (ds) from https://github.com/funnyplanter/CuNNy
+commit 906031bb00c15dd6a6bbbaa21c0eb0b724ca8437 (LGPL-3.0 license, see LICENSE.txt)

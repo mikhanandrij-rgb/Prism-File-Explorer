@@ -75,6 +75,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import android.app.Activity
 import kotlinx.coroutines.delay
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.BundledShaders
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderSelection
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.res.stringResource
@@ -93,6 +94,7 @@ import com.raival.compose.file.explorer.screen.viewer.video.model.PlaybackStats
 import com.raival.compose.file.explorer.screen.viewer.video.model.VideoPlayerState
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlin.math.abs
 
 private enum class PlayerSheet { NONE, UPSCALING, TRACKS }
@@ -660,6 +662,14 @@ private fun StatsOverlay(stats: PlaybackStats?, state: VideoPlayerState, modifie
             if (stats.renderPasses >= 0) {
                 appendLine("Passes ${stats.renderPasses} total · ${stats.shaderPasses} from shaders")
             }
+            stats.gpuTimeMs?.let { ms ->
+                // A frame must be rendered within one video frame interval to keep up.
+                val budget = stats.containerFps?.takeIf { it > 0 }?.let { 1000.0 / it }
+                appendLine(
+                    "Render %.1f ms/frame".format(Locale.ROOT, ms) +
+                            (budget?.let { " · budget %.1f ms (%d%%)".format(Locale.ROOT, it, (ms / it * 100).roundToInt()) } ?: "")
+                )
+            }
             stats.gpu?.let { gpu ->
                 append("GPU    ${gpu.renderer.take(28)} · float ${if (gpu.floatRenderTargets) "yes" else "NO"}")
             }
@@ -683,6 +693,9 @@ private fun shaderLabel(state: VideoPlayerState, count: Int): String =
         is ShaderSelection.Custom ->
             (state.customPresets.firstOrNull { it.id == selection.presetId }?.name ?: "custom") +
                     " · $count files"
+        is ShaderSelection.Bundled ->
+            BundledShaders.preset(selection.presetId)?.files?.last()?.removeSuffix(".glsl")
+                ?: selection.presetId
     }
 
 /** Press and hold to see the picture without shaders. */

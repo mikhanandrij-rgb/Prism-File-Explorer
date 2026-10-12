@@ -458,6 +458,7 @@ internal fun Anime4K.Level.labelRes() = when (this) {
     Anime4K.Level.FAST -> R.string.anime4k_level_fast
     Anime4K.Level.BALANCED -> R.string.anime4k_level_balanced
     Anime4K.Level.QUALITY -> R.string.anime4k_level_quality
+    Anime4K.Level.ULTRA -> R.string.anime4k_level_ultra
 }
 
 internal fun Anime4K.Level.descriptionRes() = when (this) {
@@ -465,16 +466,23 @@ internal fun Anime4K.Level.descriptionRes() = when (this) {
     Anime4K.Level.FAST -> R.string.anime4k_level_fast_desc
     Anime4K.Level.BALANCED -> R.string.anime4k_level_balanced_desc
     Anime4K.Level.QUALITY -> R.string.anime4k_level_quality_desc
+    Anime4K.Level.ULTRA -> R.string.anime4k_level_ultra_desc
 }
 
 internal fun Anime4K.Mode.labelRes() = when (this) {
     Anime4K.Mode.A -> R.string.anime4k_mode_a
     Anime4K.Mode.B -> R.string.anime4k_mode_b
     Anime4K.Mode.C -> R.string.anime4k_mode_c
+    Anime4K.Mode.AA -> R.string.anime4k_mode_aa
+    Anime4K.Mode.BB -> R.string.anime4k_mode_bb
+    Anime4K.Mode.CA -> R.string.anime4k_mode_ca
 }
 
 internal fun Anime4K.Mode.descriptionRes() = when (this) {
     Anime4K.Mode.A -> R.string.anime4k_mode_a_desc
     Anime4K.Mode.B -> R.string.anime4k_mode_b_desc
     Anime4K.Mode.C -> R.string.anime4k_mode_c_desc
+    Anime4K.Mode.AA -> R.string.anime4k_mode_aa_desc
+    Anime4K.Mode.BB -> R.string.anime4k_mode_bb_desc
+    Anime4K.Mode.CA -> R.string.anime4k_mode_ca_desc
 }

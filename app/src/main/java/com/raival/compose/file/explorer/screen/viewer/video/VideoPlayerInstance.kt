@@ -88,6 +88,7 @@ class VideoPlayerInstance(
     private var appContext: Context? = null
     private var library: ShaderLibrary? = null
     @Volatile private var activeShaderCount = 0
+    @Volatile private var activeShaderDescs: Set<String> = emptySet()
     /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
     @Volatile private var hwdecOverride: String? = null
     @Volatile private var verboseVideoLog = false
@@ -136,8 +137,9 @@ class VideoPlayerInstance(
         val gpu = withContext(Dispatchers.Default) { GpuCaps.get(ctx) }
         val restore = pendingRestore.also { pendingRestore = null }
         val selection = restore?.shaderSelection?.let(ShaderSelection::decode) ?: library.selection
-        val shaderFiles = library.shaderFiles(selection)
-        activeShaderCount = shaderFiles.size
+        // First use installs the bundled shaders (several MB of text): off the main thread.
+        val shaderFiles = withContext(Dispatchers.IO) { library.shaderFiles(selection) }
+        setActiveShaders(shaderFiles)
 
         _playerState.update {
             it.copy(
@@ -375,10 +377,26 @@ class VideoPlayerInstance(
     fun selectShaders(selection: ShaderSelection) {
         val library = library ?: return
         library.selection = selection
-        val files = library.shaderFiles(selection)
-        activeShaderCount = files.size
         _playerState.update { it.copy(shaderSelection = selection) }
-        post { lib -> applyShaders(lib, files) }
+        post { lib ->
+            val files = library.shaderFiles(selection)
+            setActiveShaders(files)
+            applyShaders(lib, files)
+        }
+    }
+
+    private fun setActiveShaders(files: List<File>) {
+        activeShaderCount = files.size
+        activeShaderDescs = files.flatMap { file ->
+            runCatching {
+                file.useLines { lines ->
+                    lines.filter { it.startsWith("//!DESC") }
+                        .map { it.removePrefix("//!DESC").trim() }
+                        .filter { it.isNotEmpty() }
+                        .toList()
+                }
+            }.getOrDefault(emptyList())
+        }.toSet()
     }
 
     fun setAnime4K(mode: Anime4K.Mode, level: Anime4K.Level) {
@@ -392,8 +410,11 @@ class VideoPlayerInstance(
     fun setCompareOriginal(original: Boolean) {
         val library = library ?: return
         _playerState.update { it.copy(comparingOriginal = original) }
-        val files = if (original) emptyList() else library.shaderFiles(_playerState.value.shaderSelection)
-        post { lib -> applyShaders(lib, files, switchDecoder = false) }
+        val selection = _playerState.value.shaderSelection
+        post { lib ->
+            val files = if (original) emptyList() else library.shaderFiles(selection)
+            applyShaders(lib, files, switchDecoder = false)
+        }
     }
 
     /**
@@ -522,25 +543,32 @@ class VideoPlayerInstance(
             activeShaders = activeShaderCount,
             renderPasses = passes.first,
             shaderPasses = passes.second,
+            gpuTimeMs = passes.third,
             gpu = appContext?.let { GpuCaps.get(it) }
         )
     }
 
-    /** Render passes of the last fresh frame: (total, from user shaders). (-1, -1) if unknown. */
-    private fun renderPasses(lib: MPVLib): Pair<Int, Int> {
+    /**
+     * Render passes of the last fresh frame: (total, from user shaders, average GPU time of all
+     * passes in ms). (-1, -1, null) if unknown; the time is null without GPU timer support.
+     */
+    private fun renderPasses(lib: MPVLib): Triple<Int, Int, Double?> {
         // vo-passes is a node; as a string mpv returns it as JSON.
-        val json = lib.getPropertyString("vo-passes") ?: return -1 to -1
+        val json = lib.getPropertyString("vo-passes") ?: return Triple(-1, -1, null)
         return runCatching {
             val fresh = org.json.JSONObject(json).getJSONArray("fresh")
-            val builtIn = listOf("scale", "color", "convert", "dither", "output", "sample", "deband",
-                "grain", "overlay", "osd", "linear", "sigmoid", "peak", "tone", "icc", "chroma", "plane")
+            // User shader passes carry the //!DESC of their pass; everything else is mpv's own.
+            val descs = activeShaderDescs
             var user = 0
+            var gpuNs = 0L
             for (i in 0 until fresh.length()) {
-                val desc = fresh.getJSONObject(i).optString("desc").lowercase()
-                if (desc.contains("anime4k") || builtIn.none { desc.contains(it) }) user++
+                val pass = fresh.getJSONObject(i)
+                val desc = pass.optString("desc")
+                if (descs.isNotEmpty() && descs.any { desc.contains(it) }) user++
+                gpuNs += pass.optLong("avg", 0L)
             }
-            fresh.length() to user
-        }.getOrDefault(-1 to -1)
+            Triple(fresh.length(), user, if (gpuNs > 0) gpuNs / 1_000_000.0 else null)
+        }.getOrDefault(Triple(-1, -1, null))
     }
 
     /** Latest playback position reported by mpv (ms). Never blocks. */

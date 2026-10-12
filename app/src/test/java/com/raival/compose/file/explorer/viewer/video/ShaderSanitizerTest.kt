@@ -9,7 +9,7 @@ import java.io.File
 
 class ShaderSanitizerTest {
 
-    private val assetsDir = File("src/main/assets/anime4k")
+    private val assetDirs = listOf("anime4k", "artcnn", "cunny").map { File("src/main/assets", it) }
 
     @Test
     fun removesCommentsAfterDefines() {
@@ -56,7 +56,7 @@ class ShaderSanitizerTest {
 
     @Test
     fun keepsEveryDirectiveOfTheBundledShaders() {
-        assetsDir.listFiles { f -> f.extension == "glsl" }!!.forEach { file ->
+        assetDirs.flatMap { it.listFiles { f -> f.extension == "glsl" }!!.toList() }.forEach { file ->
             val source = file.readText()
             val out = ShaderSanitizer.sanitize(source)
             val before = source.lines().filter { it.trimStart().startsWith("//!") }
@@ -68,6 +68,46 @@ class ShaderSanitizerTest {
                 "comment left in a #define of ${file.name}",
                 out.lines().any { it.startsWith("#define") && it.contains("//") }
             )
+        }
+    }
+
+    @Test
+    fun rewritesDesktopGlslForGlslEs() {
+        val out = ShaderSanitizer.sanitize(
+            """
+            //!DESC conv
+            //!COMPUTE 24 32 12 16
+            //!HOOK LUMA
+            //!BIND LUMA
+            #extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+            const ivec2 ksize = ivec2(3, 3);
+            void hook() {
+                const uvec2 local_xy = gl_LocalInvocationID.xy;
+                for (uint y = local_xy.y; y < 4; y += 1) {
+                    for (uint x = local_xy.x; x < 4; x += 1) {
+                    }
+                }
+                for (uint k = other.x; k < 4u; k++) {}
+                const vec4 v = LUMA_tex(LUMA_pos);
+            }
+            """.trimIndent()
+        )
+        assertFalse(out.contains("#extension"))
+        assertTrue(out.contains("const ivec2 ksize = ivec2(3, 3);"))  // globals stay const
+        assertTrue(out.contains("    ivec2 local_xy = ivec2(gl_LocalInvocationID.xy);"))
+        assertTrue(out.contains("for (int y = local_xy.y;"))
+        assertTrue(out.contains("for (int x = local_xy.x;"))
+        assertTrue(out.contains("for (uint k = other.x;"))  // unrelated uint loops untouched
+        assertTrue(out.contains("    vec4 v = LUMA_tex(LUMA_pos);"))
+    }
+
+    @Test
+    fun bundledComputeShadersBecomeGlslEs() {
+        assetDirs.drop(1).flatMap { it.listFiles { f -> f.extension == "glsl" }!!.toList() }.forEach { file ->
+            val code = ShaderSanitizer.sanitize(file.readText()).lines().filterNot { it.startsWith("//!") }
+            assertFalse("#extension left in ${file.name}", code.any { it.trimStart().startsWith("#extension") })
+            assertFalse("local const left in ${file.name}", code.any { Regex("""^\s+const\s""").containsMatchIn(it) })
+            assertFalse("uint thread id left in ${file.name}", code.any { it.contains("uvec2 local_xy") })
         }
     }
 }

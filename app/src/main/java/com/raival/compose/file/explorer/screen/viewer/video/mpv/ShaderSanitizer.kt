@@ -17,11 +17,21 @@ package com.raival.compose.file.explorer.screen.viewer.video.mpv
  *    way. -> Each pass starts with explicit function-like wrappers, e.g.
  *    `#define MAIN_texOff(off) MAINPRESUB_texOff(off)`, guarded by #ifdef so they only apply
  *    where libplacebo actually declared the target.
+ *
+ * Shaders written for desktop GLSL / Vulkan (e.g. ArtCNN compute shaders) also rely on things
+ * GLSL ES 3.1 forbids; these are rewritten to equivalent ES code:
+ *
+ * 3. `#extension` after code (float16 arithmetic, which GLES lacks anyway). -> removed; the
+ *    shaders' own `#ifdef` fallback then uses 32-bit floats.
+ * 4. `const` locals with non-constant initializers (`const V4 x = inp[...]`). -> `const`
+ *    dropped from indented (function-local) declarations; the values are never written.
+ * 5. Implicit uint/int conversions (`uvec2 local_xy = gl_LocalInvocationID.xy` mixed with ints).
+ *    -> such thread ids become `ivec2`, and loops over them use `int`.
  */
 object ShaderSanitizer {
 
     /** Bumped when the output changes, so installed copies are regenerated. */
-    const val VERSION = 1
+    const val VERSION = 2
 
     private val SAMPLING = listOf(
         "tex" to "pos",
@@ -31,6 +41,7 @@ object ShaderSanitizer {
 
     fun sanitize(source: String): String {
         val out = StringBuilder(source.length + 1024)
+        val intIds = mutableSetOf<String>()
         val lines = source.replace("\r\n", "\n").split('\n')
         var i = 0
         while (i < lines.size) {
@@ -47,10 +58,30 @@ object ShaderSanitizer {
                 if (stages.isNotEmpty()) out.append(wrappers(stages))
                 continue
             }
-            out.append(stripComment(line)).append('\n')
+            val code = gles(stripComment(line), intIds)
+            if (code != null) out.append(code).append('\n')
             i++
         }
         return out.toString().trimEnd('\n') + "\n"
+    }
+
+    private val FLOAT16_EXTENSION = Regex("""^\s*#\s*extension\s+GL_EXT_shader_explicit_arithmetic_types\w*\s*:.*$""")
+    private val LOCAL_CONST = Regex("""^(\s+)const\s+(?=\w+\s+\w+\s*=)""")
+    private val UINT_THREAD_ID = Regex("""\buvec2\s+(\w+)\s*=\s*(gl_\w+InvocationID(?:\.xy)?)\s*;""")
+    private val UINT_LOOP = Regex("""\bfor\s*\(\s*uint\s+(\w+)\s*=\s*(\w+)\.""")
+
+    /** Rewrites one code line to GLSL ES; null drops the line. [intIds] tracks converted ids. */
+    internal fun gles(line: String, intIds: MutableSet<String> = mutableSetOf()): String? {
+        if (FLOAT16_EXTENSION.matches(line)) return null
+        var result = line.replace(LOCAL_CONST, "$1")
+        result = UINT_THREAD_ID.replace(result) { m ->
+            intIds += m.groupValues[1]
+            "ivec2 ${m.groupValues[1]} = ivec2(${m.groupValues[2]});"
+        }
+        result = UINT_LOOP.replace(result) { m ->
+            if (m.groupValues[2] in intIds) "for (int ${m.groupValues[1]} = ${m.groupValues[2]}." else m.value
+        }
+        return result
     }
 
     private fun isDirective(line: String) = line.trimStart().startsWith("//!")

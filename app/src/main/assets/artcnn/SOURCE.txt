@@ -1,0 +1,2 @@
+ArtCNN GLSL shaders from https://github.com/Artoriuz/ArtCNN
+commit 8789539dfae120f2877a89bb6218026d56809612 (MIT license, see LICENSE.txt)
