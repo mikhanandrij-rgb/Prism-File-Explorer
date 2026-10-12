@@ -396,9 +396,9 @@ class VideoPlayerInstance(
      * and the shader macros use textureLod(), which GLSL ES doesn't allow on samplerExternalOES
      * (Adreno rejects it; the emulator's ANGLE accepts it). libplacebo also disables a hook for
      * good once it failed to compile. So when shaders are turned on:
-     *   1. switch to copy decoding and wait until the decoder really changed,
-     *   2. if frames were zero-copy before, re-create the renderer (drops any OES frames
-     *      already queued and any hook disabled by an earlier failure),
+     *   1. switch to copy decoding,
+     *   2. wait until frames in the chain are no longer MediaCodec surfaces (the format change
+     *      makes mpv reconfigure the output and drop queued zero-copy frames),
      *   3. only then set the shaders.
      * Turning them off goes the other way round.
      */
@@ -406,12 +406,8 @@ class VideoPlayerInstance(
         val shadersOn = files.isNotEmpty()
         if (shadersOn) {
             if (switchDecoder) {
-                val wasZeroCopy = lib.getPropertyString("hwdec-current") == "mediacodec"
                 setDecoder(lib, shadersActive = true)
-                if (wasZeroCopy) {
-                    awaitDecoder(lib) { it != "mediacodec" }
-                    recreateRenderer(lib)
-                }
+                awaitCopiedFrames(lib)
             }
             lib.command(arrayOf("change-list", "glsl-shaders", "set", files.joinToString(":") { it.absolutePath }))
         } else {
@@ -426,23 +422,21 @@ class VideoPlayerInstance(
         if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
     }
 
-    /** Waits (bounded) until hwdec-current satisfies [done]; a paused player needs a re-decode. */
-    private fun awaitDecoder(lib: MPVLib, done: (String) -> Boolean) {
+    /**
+     * Waits (bounded) until neither the decoder nor the frames in the video chain are zero-copy
+     * MediaCodec surfaces. A paused player needs a re-decode for that.
+     */
+    private fun awaitCopiedFrames(lib: MPVLib) {
+        fun zeroCopy() = lib.getPropertyString("hwdec-current") == "mediacodec" ||
+                lib.getPropertyString("video-params/pixelformat") == "mediacodec"
+        if (!zeroCopy()) return
         redrawIfPaused(lib)
         val deadline = System.currentTimeMillis() + 3_000
         while (System.currentTimeMillis() < deadline) {
-            val current = lib.getPropertyString("hwdec-current") ?: "no"
-            if (done(current)) return
+            if (!zeroCopy()) return
             Thread.sleep(50)
         }
-        logger.logError("mpv: decoder did not switch in time (hwdec-current=${lib.getPropertyString("hwdec-current")})")
-    }
-
-    /** Re-creates the video output (and its libplacebo renderer) on the attached surface. */
-    private fun recreateRenderer(lib: MPVLib) {
-        if (surfaceHolder == null) return
-        lib.setOptionString("vo", "null")
-        lib.setOptionString("vo", VIDEO_OUTPUT)
+        logger.logError("mpv: frames still zero-copy after switching decoder")
     }
 
     /** A paused frame is not re-rendered on its own: an exact seek to the same timestamp is. */
