@@ -65,7 +65,12 @@ class ShaderVisualTest {
             file.outputStream().use { input.copyTo(it) }
         }
         videoUri = FileProvider.getUriForFile(context, context.packageName + ".provider", file)
-        context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear().commit()
+        // Software decoding for the production-path check: for the renderer it is the same path
+        // as mediacodec-copy (frames uploaded as normal textures). The emulator's MediaCodec
+        // stalls under mpv; every hwdec mode is still tried below with a timeout.
+        context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
+            .putString(VideoPlayerInstance.DEBUG_HWDEC_KEY, "no")
+            .commit()
         outDir.deleteRecursively()
         outDir.mkdirs()
     }

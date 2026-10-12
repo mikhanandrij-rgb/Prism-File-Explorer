@@ -357,8 +357,11 @@ class VideoRotationTest {
     }
 
     private object VideoPlayerPrefsReset {
+        /** Clean settings; software decoding (the emulator's MediaCodec stalls under mpv). */
         fun reset(context: Context) {
-            context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear().commit()
+            context.getSharedPreferences("video_player", Context.MODE_PRIVATE).edit().clear()
+                .putString(VideoPlayerInstance.DEBUG_HWDEC_KEY, "no")
+                .commit()
         }
     }
 

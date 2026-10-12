@@ -87,6 +87,8 @@ class VideoPlayerInstance(
     private var library: ShaderLibrary? = null
     @Volatile private var activeShaderCount = 0
     @Volatile private var lastShaderErrorAt = 0L
+    /** Debug builds only: forces a hwdec mode (used by instrumented tests on emulators). */
+    @Volatile private var hwdecOverride: String? = null
     private var audioFocus: PlaybackAudioFocus? = null
     private var statsJob: Job? = null
     private var surfaceHolder: SurfaceHolder? = null
@@ -116,6 +118,8 @@ class VideoPlayerInstance(
         appContext = ctx
         if (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             logLevel = MPVLib.MpvLogLevel.MPV_LOG_LEVEL_INFO
+            hwdecOverride = ctx.getSharedPreferences("video_player", Context.MODE_PRIVATE)
+                .getString(DEBUG_HWDEC_KEY, null)
         }
         val library = ShaderLibrary(ctx).also { library = it }
         val restore = pendingRestore.also { pendingRestore = null }
@@ -176,7 +180,7 @@ class VideoPlayerInstance(
             // Video output: libplacebo on OpenGL ES, MediaCodec decoding imported into GL.
             setOptionString("gpu-context", "android")
             setOptionString("opengl-es", "yes")
-            setOptionString("hwdec", hwdecFor(shadersActive = shaderFiles.isNotEmpty()))
+            setOptionString("hwdec", hwdecOverride ?: hwdecFor(shadersActive = shaderFiles.isNotEmpty()))
             setOptionString("hwdec-codecs", "h264,hevc,mpeg4,mpeg2video,vp8,vp9,av1")
             setOptionString("vo", if (holder != null) VIDEO_OUTPUT else "null")
             setOptionString("force-window", if (holder != null) "yes" else "no")
@@ -242,42 +246,57 @@ class VideoPlayerInstance(
 
     // --- Surface --------------------------------------------------------------------------
 
-    /** Attach to the SurfaceView that shows the video. */
+    /**
+     * Attach to the SurfaceView that shows the video.
+     *
+     * The callbacks hand the surface to mpv on the control thread so a busy or stuck player can
+     * never freeze the UI. Only destruction waits (bounded), because mpv must stop drawing into
+     * the surface before it goes away.
+     */
     val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
             surfaceHolder = holder
-            mpv?.run {
-                attachSurface(holder.surface)
-                setOptionString("force-window", "yes")
-                setOptionString("vo", VIDEO_OUTPUT)
+            val surface = holder.surface
+            post {
+                it.attachSurface(surface)
+                it.setOptionString("force-window", "yes")
+                it.setOptionString("vo", VIDEO_OUTPUT)
             }
         }
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-            mpv?.setPropertyString("android-surface-size", "${width}x$height")
+            post { it.setPropertyString("android-surface-size", "${width}x$height") }
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             if (surfaceHolder === holder) surfaceHolder = null
-            mpv?.run {
-                // Keep playing without video output until a new surface arrives.
-                setOptionString("vo", "null")
-                setOptionString("force-window", "no")
-                detachSurface()
+            val done = java.util.concurrent.CountDownLatch(1)
+            val queued = post {
+                try {
+                    // Keep playing without video output until a new surface arrives.
+                    it.setOptionString("vo", "null")
+                    it.setOptionString("force-window", "no")
+                    it.detachSurface()
+                } finally {
+                    done.countDown()
+                }
+            }
+            if (queued && !done.await(SURFACE_RELEASE_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                logger.logError("mpv did not release the video surface in time")
             }
         }
     }
 
     // --- Controls -------------------------------------------------------------------------
 
-    /** Runs [block] on the control thread if the player exists. */
-    private fun post(block: (MPVLib) -> Unit) {
-        val lib = mpv ?: return
-        runCatching {
+    /** Runs [block] on the control thread if the player exists. Returns false if not queued. */
+    private fun post(block: (MPVLib) -> Unit): Boolean {
+        val lib = mpv ?: return false
+        return runCatching {
             control.execute {
                 if (mpv === lib) runCatching { block(lib) }.onFailure { logger.logError(it) }
             }
-        }
+        }.isSuccess
     }
 
     fun playPause() {
@@ -352,7 +371,7 @@ class VideoPlayerInstance(
     private fun applyShaders(lib: MPVLib, files: List<File>) {
         // User shaders hook into the texture pipeline; frames must be copied out of MediaCodec
         // for that. Without shaders, zero-copy decoding is cheaper.
-        val hwdec = hwdecFor(shadersActive = files.isNotEmpty())
+        val hwdec = hwdecOverride ?: hwdecFor(shadersActive = files.isNotEmpty())
         if (lib.getPropertyString("hwdec") != hwdec) lib.setPropertyString("hwdec", hwdec)
         if (files.isEmpty()) {
             lib.command(arrayOf("change-list", "glsl-shaders", "clr", ""))
@@ -662,6 +681,10 @@ class VideoPlayerInstance(
         /** libplacebo renderer; falls back to the classic OpenGL renderer if it can't start. */
         private const val VIDEO_OUTPUT = "gpu-next,gpu"
         private const val LOG_TAG = "mpv"
+        private const val SURFACE_RELEASE_TIMEOUT_MS = 1_500L
+
+        /** SharedPreferences key ("video_player") honoured in debuggable builds only. */
+        const val DEBUG_HWDEC_KEY = "debug_hwdec_override"
 
         /**
          * - shaders active: mediacodec-copy (frames in normal textures, shaders apply)
