@@ -186,8 +186,14 @@ class UpscalerBenchmarkTest {
         }
         Thread.sleep(800)
         dismissSystemDialogs()
-        val shot = instrumentation.uiAutomation.takeScreenshot()
-            ?: throw AssertionError("screenshot $name failed")
+        // takeScreenshot() returns null now and then when called in quick succession.
+        var shot: Bitmap? = null
+        for (attempt in 1..6) {
+            shot = instrumentation.uiAutomation.takeScreenshot()
+            if (shot != null) break
+            Thread.sleep(1_000L * attempt)
+        }
+        if (shot == null) throw AssertionError("screenshot $name failed")
         File(outDir, "$name.png").outputStream().use { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }
         return shot
     }
@@ -206,6 +212,8 @@ class UpscalerBenchmarkTest {
     private fun line(text: String) {
         report.appendLine(text)
         Log.i(TAG, text)
+        // Written as we go so partial results survive a failure.
+        runCatching { File(outDir, "results.txt").writeText(report.toString()) }
     }
 
     private fun waitForPlayback(): VideoPlayerInstance {

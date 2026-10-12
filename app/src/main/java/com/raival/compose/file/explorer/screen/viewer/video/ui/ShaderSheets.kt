@@ -38,6 +38,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -63,6 +64,7 @@ import com.raival.compose.file.explorer.screen.viewer.video.mpv.Anime4K
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderPreset
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderRef
 import com.raival.compose.file.explorer.screen.viewer.video.mpv.ShaderSelection
+import com.raival.compose.file.explorer.screen.viewer.video.mpv.UpscalerRanking
 
 private val shaderMimeTypes = arrayOf("*/*")
 
@@ -127,6 +129,24 @@ internal fun ShaderSheet(
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
+
+            // --- Ranked neural upscalers -------------------------------------------------
+            Text(stringResource(R.string.upscalers_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = stringResource(R.string.upscalers_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
+            )
+            UpscalerRanking.entries.forEach { entry ->
+                UpscalerRow(
+                    entry = entry,
+                    selected = selection == entry.selection,
+                    onClick = { instance.selectShaders(entry.selection) }
+                )
+            }
+
+            HorizontalDivider(Modifier.padding(vertical = 12.dp))
 
             // --- Anime4K ------------------------------------------------------------------
             Text(stringResource(R.string.anime4k_title), style = MaterialTheme.typography.titleMedium)
@@ -485,4 +505,82 @@ internal fun Anime4K.Mode.descriptionRes() = when (this) {
     Anime4K.Mode.AA -> R.string.anime4k_mode_aa_desc
     Anime4K.Mode.BB -> R.string.anime4k_mode_bb_desc
     Anime4K.Mode.CA -> R.string.anime4k_mode_ca_desc
+}
+
+/** One ranked upscaler: name, recommended badge, description and quality / load meters. */
+@Composable
+private fun UpscalerRow(entry: UpscalerRanking.Entry, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = entry.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (entry.recommended) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(color = colorScheme.primaryContainer, shape = MaterialTheme.shapes.small) {
+                        Text(
+                            text = stringResource(R.string.upscalers_recommended),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+            upscalerDescription(entry.key)?.let {
+                Text(
+                    text = stringResource(it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colorScheme.onSurfaceVariant
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(top = 2.dp)) {
+                Meter(stringResource(R.string.upscalers_quality), entry.quality, colorScheme.primary)
+                Meter(stringResource(R.string.upscalers_load), entry.load, colorScheme.tertiary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun Meter(label: String, value: Int, color: androidx.compose.ui.graphics.Color) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "$label ",
+            style = MaterialTheme.typography.labelSmall,
+            color = colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = "●".repeat(value) + "○".repeat(5 - value),
+            style = MaterialTheme.typography.labelSmall,
+            color = color
+        )
+    }
+}
+
+private fun upscalerDescription(key: String): Int? = when (key) {
+    "artcnn_c4f32_ds" -> R.string.upscaler_artcnn_c4f32_ds_desc
+    "artcnn_c4f32" -> R.string.upscaler_artcnn_c4f32_desc
+    "artcnn_c4f16_ds" -> R.string.upscaler_artcnn_c4f16_ds_desc
+    "cunny_8x32_ds" -> R.string.upscaler_cunny_8x32_ds_desc
+    "cunny_4x16_ds" -> R.string.upscaler_cunny_4x16_ds_desc
+    "a4k_aa_ultra" -> R.string.upscaler_a4k_aa_ultra_desc
+    "a4k_a_quality" -> R.string.upscaler_a4k_a_quality_desc
+    "a4k_a_fast" -> R.string.upscaler_a4k_a_fast_desc
+    "gan_x3_vl" -> R.string.upscaler_gan_x3_vl_desc
+    "gan_x4_uul" -> R.string.upscaler_gan_x4_uul_desc
+    else -> null
 }
