@@ -1,7 +1,7 @@
 name: Upscaler benchmark
 
 # Runs only UpscalerBenchmarkTest, for commits whose message contains [bench].
-# Options to render: scripts/bench_only.txt (comma-separated ids; empty = all).
+# Options to render: scripts/bench_only.txt (ids separated by ":"; empty = all).
 on:
   push:
 

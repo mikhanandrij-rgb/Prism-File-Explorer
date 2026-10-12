@@ -74,7 +74,7 @@ class UpscalerBenchmarkTest {
     }.let { all ->
         // -e bench_only id1,id2 limits the run (CI keeps it to ~10 minutes).
         val only = InstrumentationRegistry.getArguments().getString("bench_only")
-            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
+            ?.split(Regex("[,:]"))?.map { it.trim() }?.filter { it.isNotEmpty() }?.toSet()
         if (only.isNullOrEmpty()) all else all.filter { it.id in only }
     }
 
